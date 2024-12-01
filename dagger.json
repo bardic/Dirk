@@ -1,0 +1,6 @@
+{
+  "name": "local_gameci",
+  "engineVersion": "v0.14.0",
+  "sdk": "go",
+  "source": ".dagger"
+}
