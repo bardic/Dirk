@@ -1,17 +1,3 @@
-// A generated module for LocalGameci functions
-//
-// This module has been generated via dagger init and serves as a reference to
-// basic module structure as you get started with Dagger.
-//
-// Two functions have been pre-created. You can modify, delete, or add to them,
-// as needed. They demonstrate usage of arguments and return types using simple
-// echo and grep commands. The functions can be called from the dagger CLI or
-// from one of the SDKs.
-//
-// The first line in this comment block is a short description line and the
-// rest is a long description with more detail on the module's purpose or usage,
-// if appropriate. All modules should have a short description.
-
 package main
 
 import (
@@ -34,8 +20,56 @@ func (m *LocalGameci) Build(ctx context.Context, src *dagger.Directory, user, pl
 	// +optional
 	ulf *dagger.File,
 ) *dagger.Directory {
+	c := m.createBaseContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf)
+
+	libCache := dag.CacheVolume("lib")
+
+	c = m.register(c, serial, ulf)
+
+	c = c.WithDirectory("/src", m.Src).
+		WithMountedCache("/src/Library/", libCache)
+
+	c = m.build(c)
+	c = m.returnLicense(c)
+
+	err := m.checkForError()
+
+	if err != nil {
+		return nil
+	}
+
+	return m.getBuildArtifact(c)
+}
+
+func (m *LocalGameci) Test(ctx context.Context, src *dagger.Directory, user, platform, buildTarget, os, buildName, testingingPlatform string, pass *dagger.Secret,
+	// +optional
+	serial *dagger.Secret,
+	// +optional
+	ulf *dagger.File,
+) *dagger.Directory {
+	c := m.createBaseContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf)
+	libCache := dag.CacheVolume("lib")
+
+	c = m.register(c, serial, ulf)
+
+	c = c.WithDirectory("/src", m.Src).
+		WithMountedCache("/src/Library/", libCache)
+
+	c = m.test(c, testingingPlatform)
+
+	c = m.returnLicense(c)
+
+	d := c.Directory("/results")
+	return d
+}
+
+func (m *LocalGameci) createBaseContainer(src *dagger.Directory, user, platform, buildTarget, os, buildName string, pass *dagger.Secret,
+	// +optional
+	serial *dagger.Secret,
+	// +optional
+	ulf *dagger.File) *dagger.Container {
 	src = src.WithoutDirectory(".git")
-	src = src.WithoutDirectory(".dagger")
+	// src = src.WithoutDirectory(".dagger")
 	src = src.WithoutDirectory(".vscode")
 	src = src.WithoutFiles([]string{".gitignore", ".gitmodules", ".DS_Store", "dagger.json", "go.work", "LICENSE", "README.md"})
 
@@ -49,8 +83,6 @@ func (m *LocalGameci) Build(ctx context.Context, src *dagger.Directory, user, pl
 	m.Pass = pass
 	m.Serial = serial
 
-	libCache := dag.CacheVolume("lib")
-
 	unityVersion, err := m.determineUnityProjectVersion()
 
 	if err != nil {
@@ -59,21 +91,7 @@ func (m *LocalGameci) Build(ctx context.Context, src *dagger.Directory, user, pl
 
 	c := dag.Container().From("unityci/editor:" + os + "-" + unityVersion + "-" + platform + "-3.1.0")
 
-	if ulf != nil {
-		fmt.Println("Registering personal license")
-		c = m.registerPersonalLicense(c)
-	} else {
-		fmt.Println("Registering serial license")
-		c = m.registerSerialLicense(c)
-	}
-
-	c = c.WithDirectory("/src", m.Src).
-		WithMountedCache("/src/Library/", libCache)
-
-	c = m.build(c)
-	c = m.returnLicense(c)
-
-	return m.getBuildArtifact(c)
+	return c
 }
 
 func (m *LocalGameci) determineUnityProjectVersion() (string, error) {
@@ -88,11 +106,9 @@ func (m *LocalGameci) determineUnityProjectVersion() (string, error) {
 	return v, nil
 }
 
-func (m *LocalGameci) build(container *dagger.Container) *dagger.Container {
+func (m *LocalGameci) build(c *dagger.Container) *dagger.Container {
 	cmd := append(m.baseCommand(),
 		[]string{
-			"-projectPath",
-			"/src",
 			"-buildTarget",
 			m.BuildTarget,
 			"-customBuildPath",
@@ -101,12 +117,15 @@ func (m *LocalGameci) build(container *dagger.Container) *dagger.Container {
 			m.BuildName,
 			"-customBuildTarget",
 			m.BuildTarget,
+			"-quit",
 			"-executeMethod",
 			"BuildCommand.PerformBuild",
+			"-logFile",
+			"/src/Builds/unity.log",
 		}...,
 	)
 
-	return container.
+	return c.
 		WithExec(cmd,
 			dagger.ContainerWithExecOpts{
 				Expect: dagger.ReturnTypeAny,
@@ -114,12 +133,59 @@ func (m *LocalGameci) build(container *dagger.Container) *dagger.Container {
 		)
 }
 
-func (m *LocalGameci) getBuildArtifact(container *dagger.Container) *dagger.Directory {
-	return container.
+func (m *LocalGameci) test(c *dagger.Container, testingingPlatform string) *dagger.Container {
+	cmd := append(m.baseCommand(),
+		[]string{
+			"-runTests",
+			"-testResults",
+			"/results/results.xml",
+			"-debugCodeOptimization",
+			"-enableCodeCoverage",
+			"-coverageResultsPath",
+			"/results/coverage/",
+			"-coverageHistoryPath",
+			"/results/coverage-history/",
+			"-testPlatform",
+			"playmode",
+			"-coverageOptions",
+			"'generateAdditionalMetrics;generateHtmlReport;generateHtmlReportHistory;generateBadgeReport;verbosity:verbose'",
+			"-logFile",
+			"/results/unity.log",
+		}...)
+
+	return c.
+		WithExec(cmd,
+			dagger.ContainerWithExecOpts{
+				Expect: dagger.ReturnTypeAny,
+			},
+		)
+}
+
+func (m *LocalGameci) getBuildArtifact(c *dagger.Container) *dagger.Directory {
+	return c.
 		Directory("/src/Builds")
 }
 
-func (m *LocalGameci) registerPersonalLicense(container *dagger.Container) *dagger.Container {
+func (m *LocalGameci) getTestResults(c *dagger.Container) *dagger.Directory {
+	return c.
+		Directory("/results")
+}
+
+func (m *LocalGameci) register(c *dagger.Container, serial *dagger.Secret, ulf *dagger.File) *dagger.Container {
+	if ulf != nil {
+		fmt.Println("Registering personal license")
+		c = m.registerPersonalLicense(c)
+	}
+
+	if serial != nil {
+		fmt.Println("Registering serial license")
+		c = m.registerSerialLicense(c)
+	}
+
+	return c
+}
+
+func (m *LocalGameci) registerPersonalLicense(c *dagger.Container) *dagger.Container {
 	p, err := m.Pass.Plaintext(marshalCtx)
 
 	if err != nil {
@@ -135,7 +201,7 @@ func (m *LocalGameci) registerPersonalLicense(container *dagger.Container) *dagg
 		}...,
 	)
 
-	return container.
+	return c.
 		WithFile("/root/.local/share/unity3d/Unity/Unity_lic.ulf", m.Ulf).
 		WithExec(cmd,
 			dagger.ContainerWithExecOpts{
@@ -144,7 +210,7 @@ func (m *LocalGameci) registerPersonalLicense(container *dagger.Container) *dagg
 		)
 }
 
-func (m *LocalGameci) registerSerialLicense(container *dagger.Container) *dagger.Container {
+func (m *LocalGameci) registerSerialLicense(c *dagger.Container) *dagger.Container {
 	s, err := m.Serial.Plaintext(marshalCtx)
 
 	if err != nil {
@@ -168,7 +234,7 @@ func (m *LocalGameci) registerSerialLicense(container *dagger.Container) *dagger
 		}...,
 	)
 
-	return container.
+	return c.
 		WithExec(cmd,
 			dagger.ContainerWithExecOpts{
 				Expect: dagger.ReturnTypeAny,
@@ -176,13 +242,17 @@ func (m *LocalGameci) registerSerialLicense(container *dagger.Container) *dagger
 		)
 }
 
-func (m *LocalGameci) returnLicense(container *dagger.Container) *dagger.Container {
+func (m *LocalGameci) returnLicense(c *dagger.Container) *dagger.Container {
 
 	cmd := append(m.baseCommand(), []string{"-returnlicense"}...)
-	return container.
+	return c.
 		WithExec(cmd, dagger.ContainerWithExecOpts{
 			Expect: dagger.ReturnTypeAny,
 		})
+}
+
+func (m *LocalGameci) checkForError() error {
+	return nil
 }
 
 func (m *LocalGameci) baseCommand() []string {
@@ -191,8 +261,8 @@ func (m *LocalGameci) baseCommand() []string {
 		"--auto-servernum",
 		"--server-args='-screen 0 640x480x24'",
 		"unity-editor",
-		"-quit",
-		"-batchmode",
 		"-nographics",
+		"-projectPath",
+		"/src",
 	}
 }
