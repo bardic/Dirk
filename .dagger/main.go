@@ -5,6 +5,7 @@ import (
 	"dagger/local-gameci/internal/dagger"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type LocalGameci struct {
@@ -14,20 +15,18 @@ type LocalGameci struct {
 	Pass, Serial                               *dagger.Secret
 }
 
-func (m *LocalGameci) Build(ctx context.Context, src *dagger.Directory, user, platform, buildTarget, os, buildName string, pass *dagger.Secret,
+//dagger call build
+
+func (m *LocalGameci) Build(ctx context.Context,
+	src *dagger.Directory,
+	user, platform, buildTarget, os, buildName string,
+	pass *dagger.Secret,
 	// +optional
 	serial *dagger.Secret,
 	// +optional
 	ulf *dagger.File,
 ) *dagger.Directory {
 	c := m.createBaseContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf)
-
-	libCache := dag.CacheVolume("lib")
-
-	c = m.register(c, serial, ulf)
-
-	c = c.WithDirectory("/src", m.Src).
-		WithMountedCache("/src/Library/", libCache)
 
 	c = m.build(c)
 	c = m.returnLicense(c)
@@ -41,26 +40,36 @@ func (m *LocalGameci) Build(ctx context.Context, src *dagger.Directory, user, pl
 	return m.getBuildArtifact(c)
 }
 
-func (m *LocalGameci) Test(ctx context.Context, src *dagger.Directory, user, platform, buildTarget, os, buildName, testingingPlatform string, pass *dagger.Secret,
+//dagger call test
+
+func (m *LocalGameci) Test(ctx context.Context,
+	src *dagger.Directory,
+	user, platform, buildTarget, os, buildName, testingingPlatform string,
+	pass *dagger.Secret,
+	// +optional
+	junit bool,
 	// +optional
 	serial *dagger.Secret,
 	// +optional
 	ulf *dagger.File,
-) *dagger.Directory {
+) *dagger.Container {
 	c := m.createBaseContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf)
-	libCache := dag.CacheVolume("lib")
-
-	c = m.register(c, serial, ulf)
-
-	c = c.WithDirectory("/src", m.Src).
-		WithMountedCache("/src/Library/", libCache)
 
 	c = m.test(c, testingingPlatform)
 
+	if junit {
+		c = m.convertTestsToJUNIT(c)
+	}
+
 	c = m.returnLicense(c)
 
-	d := c.Directory("/results")
-	return d
+	err := m.checkForError()
+
+	if err != nil {
+		return nil
+	}
+
+	return c //m.getBuildArtifact(c)
 }
 
 func (m *LocalGameci) createBaseContainer(src *dagger.Directory, user, platform, buildTarget, os, buildName string, pass *dagger.Secret,
@@ -69,7 +78,7 @@ func (m *LocalGameci) createBaseContainer(src *dagger.Directory, user, platform,
 	// +optional
 	ulf *dagger.File) *dagger.Container {
 	src = src.WithoutDirectory(".git")
-	// src = src.WithoutDirectory(".dagger")
+	src = src.WithoutDirectory(".dagger")
 	src = src.WithoutDirectory(".vscode")
 	src = src.WithoutFiles([]string{".gitignore", ".gitmodules", ".DS_Store", "dagger.json", "go.work", "LICENSE", "README.md"})
 
@@ -90,6 +99,14 @@ func (m *LocalGameci) createBaseContainer(src *dagger.Directory, user, platform,
 	}
 
 	c := dag.Container().From("unityci/editor:" + os + "-" + unityVersion + "-" + platform + "-3.1.0")
+	c.WithEnvVariable("CACHEBUSTER", time.Now().String())
+
+	libCache := dag.CacheVolume("lib")
+
+	c = m.register(c, serial, ulf)
+
+	c = c.WithDirectory("/src", m.Src).
+		WithMountedCache("/src/Library/", libCache)
 
 	return c
 }
@@ -112,7 +129,7 @@ func (m *LocalGameci) build(c *dagger.Container) *dagger.Container {
 			"-buildTarget",
 			m.BuildTarget,
 			"-customBuildPath",
-			"/src/Builds/",
+			"/builds/",
 			"-customBuildName",
 			m.BuildName,
 			"-customBuildTarget",
@@ -121,7 +138,7 @@ func (m *LocalGameci) build(c *dagger.Container) *dagger.Container {
 			"-executeMethod",
 			"BuildCommand.PerformBuild",
 			"-logFile",
-			"/src/Builds/unity.log",
+			"/builds/unity.log",
 		}...,
 	)
 
@@ -138,15 +155,15 @@ func (m *LocalGameci) test(c *dagger.Container, testingingPlatform string) *dagg
 		[]string{
 			"-runTests",
 			"-testResults",
-			"/results/results.xml",
+			"/results/" + testingingPlatform + "-results.xml",
 			"-debugCodeOptimization",
 			"-enableCodeCoverage",
 			"-coverageResultsPath",
-			"/results/coverage/",
+			"/results/" + testingingPlatform + "-coverage/",
 			"-coverageHistoryPath",
-			"/results/coverage-history/",
+			"/results/" + testingingPlatform + "-coverage-history/",
 			"-testPlatform",
-			"playmode",
+			testingingPlatform,
 			"-coverageOptions",
 			"'generateAdditionalMetrics;generateHtmlReport;generateHtmlReportHistory;generateBadgeReport;verbosity:verbose'",
 			"-logFile",
@@ -163,7 +180,7 @@ func (m *LocalGameci) test(c *dagger.Container, testingingPlatform string) *dagg
 
 func (m *LocalGameci) getBuildArtifact(c *dagger.Container) *dagger.Directory {
 	return c.
-		Directory("/src/Builds")
+		Directory("/builds")
 }
 
 func (m *LocalGameci) getTestResults(c *dagger.Container) *dagger.Directory {
@@ -265,4 +282,27 @@ func (m *LocalGameci) baseCommand() []string {
 		"-projectPath",
 		"/src",
 	}
+}
+
+func (m *LocalGameci) convertTestsToJUNIT(c *dagger.File) *dagger.File {
+
+	return dag.Container().From("openjdk").
+		WithExec([]string{
+			"apt-get",
+			"update",
+			"&&",
+			"apt-get,",
+			"install",
+			"-,y",
+			"libsaxonb-java",
+		}).
+		WithExec([]string{
+			"saxonb-xslt",
+			"-s",
+			"/results/" + m.Platform + "-results.xml",
+			"-xsl",
+			"nunit-transforms/nunit3-junit.xslt",
+			">",
+			"/results/" + m.Platform + "-junit-results.xml",
+		}).File("/results/" + m.Platform + "-junit-results.xml")
 }
