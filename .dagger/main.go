@@ -9,10 +9,10 @@ import (
 )
 
 type LocalGameci struct {
-	Src                                        *dagger.Directory
-	Ulf                                        *dagger.File
-	User, Platform, BuildTarget, Os, BuildName string
-	Pass, Serial                               *dagger.Secret
+	Src                                                            *dagger.Directory
+	Ulf, ServiceConfig                                             *dagger.File
+	User, Platform, BuildTarget, Os, BuildName, TestingingPlatform string
+	Pass, Serial                                                   *dagger.Secret
 }
 
 //dagger call build
@@ -25,8 +25,10 @@ func (m *LocalGameci) Build(ctx context.Context,
 	serial *dagger.Secret,
 	// +optional
 	ulf *dagger.File,
+	// +optional
+	serviceConfig *dagger.File,
 ) *dagger.Directory {
-	c := m.createBaseContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf)
+	c := m.createBaseContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf, serviceConfig)
 
 	c = m.build(c)
 	c = m.returnLicense(c)
@@ -40,25 +42,35 @@ func (m *LocalGameci) Build(ctx context.Context,
 	return m.getBuildArtifact(c)
 }
 
-//dagger call test
-
-func (m *LocalGameci) Test(ctx context.Context,
+func (m *LocalGameci) Test(
 	src *dagger.Directory,
-	user, platform, buildTarget, os, buildName, testingingPlatform string,
+	user string,
+	platform string,
+	buildTarget string,
+	os string,
+	buildName string,
+	testingingPlatform string,
 	pass *dagger.Secret,
 	// +optional
-	junit bool,
+	junitTransform *dagger.File,
 	// +optional
 	serial *dagger.Secret,
 	// +optional
 	ulf *dagger.File,
-) *dagger.Container {
-	c := m.createBaseContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf)
+	// +optional
+	serviceConfig *dagger.File,
+) *dagger.Directory {
+	m.TestingingPlatform = testingingPlatform
+	c := m.createBaseContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf, serviceConfig)
+	c.WithFile("/nunit-transforms/nunit3-junit.xslt", junitTransform)
 
 	c = m.test(c, testingingPlatform)
 
-	if junit {
-		c = m.convertTestsToJUNIT(c)
+	if junitTransform != nil {
+		f := c.File("/results/" + m.TestingingPlatform + "-results.xml")
+		jf := m.convertTestsToJUNIT(f, junitTransform)
+
+		c = c.WithFile("/results/"+m.TestingingPlatform+"-junit-results.xml", jf)
 	}
 
 	c = m.returnLicense(c)
@@ -69,14 +81,19 @@ func (m *LocalGameci) Test(ctx context.Context,
 		return nil
 	}
 
-	return c //m.getBuildArtifact(c)
+	return m.getTestResults(c)
 }
 
-func (m *LocalGameci) createBaseContainer(src *dagger.Directory, user, platform, buildTarget, os, buildName string, pass *dagger.Secret,
+func (m *LocalGameci) createBaseContainer(src *dagger.Directory,
+	user, platform, buildTarget, os, buildName string,
+	pass *dagger.Secret,
 	// +optional
 	serial *dagger.Secret,
 	// +optional
-	ulf *dagger.File) *dagger.Container {
+	ulf *dagger.File,
+	// +optional
+	serviceConfig *dagger.File,
+) *dagger.Container {
 	src = src.WithoutDirectory(".git")
 	src = src.WithoutDirectory(".dagger")
 	src = src.WithoutDirectory(".vscode")
@@ -91,6 +108,7 @@ func (m *LocalGameci) createBaseContainer(src *dagger.Directory, user, platform,
 	m.BuildName = buildName
 	m.Pass = pass
 	m.Serial = serial
+	m.ServiceConfig = serviceConfig
 
 	unityVersion, err := m.determineUnityProjectVersion()
 
@@ -103,7 +121,7 @@ func (m *LocalGameci) createBaseContainer(src *dagger.Directory, user, platform,
 
 	libCache := dag.CacheVolume("lib")
 
-	c = m.register(c, serial, ulf)
+	c = m.register(c)
 
 	c = c.WithDirectory("/src", m.Src).
 		WithMountedCache("/src/Library/", libCache)
@@ -188,15 +206,20 @@ func (m *LocalGameci) getTestResults(c *dagger.Container) *dagger.Directory {
 		Directory("/results")
 }
 
-func (m *LocalGameci) register(c *dagger.Container, serial *dagger.Secret, ulf *dagger.File) *dagger.Container {
-	if ulf != nil {
+func (m *LocalGameci) register(c *dagger.Container) *dagger.Container {
+	if m.Ulf != nil {
 		fmt.Println("Registering personal license")
 		c = m.registerPersonalLicense(c)
 	}
 
-	if serial != nil {
+	if m.Serial != nil {
 		fmt.Println("Registering serial license")
 		c = m.registerSerialLicense(c)
+	}
+
+	if m.ServiceConfig != nil {
+		fmt.Println("Registering license server")
+		c = m.registerLicenseServer(c)
 	}
 
 	return c
@@ -259,6 +282,15 @@ func (m *LocalGameci) registerSerialLicense(c *dagger.Container) *dagger.Contain
 		)
 }
 
+func (m *LocalGameci) registerLicenseServer(c *dagger.Container) *dagger.Container {
+	return c.WithFile("/usr/share/unity3d/config/services-config.json", m.ServiceConfig).
+		WithExec([]string{
+			"sh",
+			"-c",
+			"/opt/unity/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client --acquire-floating",
+		})
+}
+
 func (m *LocalGameci) returnLicense(c *dagger.Container) *dagger.Container {
 
 	cmd := append(m.baseCommand(), []string{"-returnlicense"}...)
@@ -284,25 +316,24 @@ func (m *LocalGameci) baseCommand() []string {
 	}
 }
 
-func (m *LocalGameci) convertTestsToJUNIT(c *dagger.File) *dagger.File {
-
-	return dag.Container().From("openjdk").
+func (m *LocalGameci) convertTestsToJUNIT(f, transform *dagger.File) *dagger.File {
+	return dag.Container().From("eclipse-temurin").
 		WithExec([]string{
 			"apt-get",
 			"update",
-			"&&",
-			"apt-get,",
-			"install",
-			"-,y",
-			"libsaxonb-java",
 		}).
 		WithExec([]string{
-			"saxonb-xslt",
-			"-s",
-			"/results/" + m.Platform + "-results.xml",
-			"-xsl",
-			"nunit-transforms/nunit3-junit.xslt",
-			">",
-			"/results/" + m.Platform + "-junit-results.xml",
-		}).File("/results/" + m.Platform + "-junit-results.xml")
+			"apt-get",
+			"install",
+			"-y",
+			"libsaxonb-java",
+		}).
+		WithFile("/results/"+m.TestingingPlatform+"-results.xml", f).
+		WithFile("/nunit-transforms/nunit3-junit.xslt", transform).
+		WithExec([]string{
+			"sh",
+			"-c",
+			"saxonb-xslt -s /results/" + m.TestingingPlatform + "-results.xml -xsl /nunit-transforms/nunit3-junit.xslt > /results/" + m.TestingingPlatform + "-junit-results.xml",
+		}).
+		File("/results/" + m.TestingingPlatform + "-junit-results.xml")
 }
