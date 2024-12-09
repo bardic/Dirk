@@ -2,12 +2,5 @@
   "name": "local_gameci",
   "engineVersion": "v0.14.0",
   "sdk": "go",
-  "dependencies": [
-    {
-      "name": "env",
-      "source": "env",
-      "pin": ""
-    }
-  ],
   "source": ".dagger"
 }
