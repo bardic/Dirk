@@ -1,4 +1,4 @@
-module dagger/local-gameci
+module github.com/bardic/local_gameci
 
 go 1.23.2
 

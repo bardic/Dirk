@@ -1,11 +1,13 @@
+// LocalGameci is a Dagger implementation of the GameCI.
+// This allows you to build and test Unity projects locally and in CI.
 package main
 
 import (
-	"context"
-	"dagger/local-gameci/internal/dagger"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/bardic/local_gameci/internal/dagger"
 )
 
 type LocalGameci struct {
@@ -15,9 +17,65 @@ type LocalGameci struct {
 	Pass, Serial                                                   *dagger.Secret
 }
 
-//dagger call build
+/*
+Build takes a source directory and builds the Unity project within it.
+Usage:
 
-func (m *LocalGameci) Build(ctx context.Context,
+	Build(src, user, platform, buildTarget, os, buildName, pass, serial, ulf, serviceConfig)
+		src: *dagger.Directory
+		user: string
+		platform: string
+		buildTarget: string
+		os: string
+		buildName: string
+		pass: *dagger.Secret
+		// +optional
+		serial: *dagger.Secret
+		// +optional
+		ulf: *dagger.File
+		// +optional
+		serviceConfig: *dagger.File
+
+Returns:
+
+	*dagger.Directory
+
+Example:
+
+	// Build unity project with a personal license targeting Windows Mono on Ubuntu
+	dagger call test --src="./example/game" \
+		--ulf="./Unity_v6000.x.ulf" \
+		--build-target="StandaloneWindows64" \
+		--build-name="demo" \
+		--platform="windows-mono" \
+		--os="ubuntu" \
+		--user=env:USER \
+		--pass=env:PASS \
+		export ./builds
+
+	// Build unity project with a User and Serail targeting Windows Mono on Ubuntu
+	dagger call test --src="./example/game" \
+		--build-target="StandaloneWindows64" \
+		--build-name="demo" \
+		--platform="windows-mono" \
+		--os="ubuntu" \
+		--user=env:USER \
+		--pass=env:PASS \
+		--serial=env:SERIAL \
+		export ./builds
+
+	// Build unity project with Service Config (float license) targeting Windows Mono on Ubuntu
+	dagger call test --src="./example/game" \
+		--build-target="StandaloneWindows64" \
+		--build-name="demo" \
+		--platform="windows-mono" \
+		--os="ubuntu" \
+		--user=env:USER \
+		--pass=env:PASS \
+		--service-config="./service-config.json" \
+		export ./builds
+*/
+func (m *LocalGameci) Build(
 	src *dagger.Directory,
 	user, platform, buildTarget, os, buildName string,
 	pass *dagger.Secret,
@@ -41,6 +99,50 @@ func (m *LocalGameci) Build(ctx context.Context,
 
 	return m.getBuildArtifact(c)
 }
+
+/*
+Test takes a source directory and tests the Unity project within it.
+Usage:
+
+	Test(src, user, platform, buildTarget, os, buildName, testingingPlatform, pass, junitTransform, serial, ulf, serviceConfig)
+		src: *dagger.Directory
+		user: string
+		platform: string
+		buildTarget: string
+		os: string
+		buildName: string
+		testingingPlatform: string
+		pass: *dagger.Secret
+		// +optional
+		junitTransform: *dagger.File
+		// +optional
+		serial: *dagger.Secret
+		// +optional
+		ulf: *dagger.File
+		// +optional
+		serviceConfig: *dagger.File
+
+Returns:
+
+	*dagger.Directory
+
+Example:
+
+	// Test unity project with a personal license targeting Windows Mono on Ubuntu
+	dagger call test \
+		--src="./example/game" \
+		--user=env:USER \
+		--platform="windows-mono" \
+		--build-target="StandaloneWindows64" \
+		--os="ubuntu" \
+		--build-name="demo" \
+		--testinging-platform="editor" \
+		--pass=env:PASS \
+		--junitTransform="/nunit-transforms/nunit3-junit.xslt" \
+		--ulf="./Unity_v6000.x.ulf" \
+		export ./results
+
+*/
 
 func (m *LocalGameci) Test(
 	src *dagger.Directory,

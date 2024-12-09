@@ -5,30 +5,59 @@ Leverage DaggerCI and GameCI to create local and remote builds
 
 ## Build
 
-**Personal License**
 ```
- dagger call build --src="./example/game" \
+// Build unity project with a personal license targeting Windows Mono on Ubuntu
+dagger call test --src="./example/game" \
     --ulf="./Unity_v6000.x.ulf" \
     --build-target="StandaloneWindows64" \
     --build-name="demo" \
     --platform="windows-mono" \
-    --os="ubuntu"
-    --user=env:USERNAME \
+    --os="ubuntu" \
+    --user=env:USER \
     --pass=env:PASS \
-    export --path=./Builds
+    export ./builds
 ```
-
-**Serial License**
 ```
- dagger call build --src="./example/game" \
+// Build unity project with a User and Serail targeting Windows Mono on Ubuntu
+dagger call test --src="./example/game" \
     --build-target="StandaloneWindows64" \
     --build-name="demo" \
     --platform="windows-mono" \
-    --os="ubuntu"
-    --user=env:USERNAME \
+    --os="ubuntu" \
+    --user=env:USER \
     --pass=env:PASS \
     --serial=env:SERIAL \
-    export --path=./Builds
+    export ./builds
+```
+
+```
+// Build unity project with Service Config (float license) targeting Windows Mono on Ubuntu
+dagger call test --src="./example/game" \
+    --build-target="StandaloneWindows64" \
+    --build-name="demo" \
+    --platform="windows-mono" \
+    --os="ubuntu" \
+    --user=env:USER \
+    --pass=env:PASS \
+    --service-config="./service-config.json" \
+    export ./builds
+```
+
+## Test
+```
+// Test unity project with personal license targeting Windows Mono on Ubuntu
+dagger call test \
+    --src="./example/game" \
+    --user=env:USER \
+    --platform="windows-mono" \
+    --build-target="StandaloneWindows64" \
+    --os="ubuntu" \
+    --build-name="demo" \
+    --testinging-platform="editor" \
+    --pass=env:PASS \
+    --junitTransform="/nunit-transforms/nunit3-junit.xslt" \
+    --ulf="./Unity_v6000.x.ulf" \
+    export ./results
 ```
 
 ## Setup

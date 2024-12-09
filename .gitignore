@@ -23,6 +23,7 @@
 !README.md
 !LICENSE
 !dagger.json
+!/nunit-transforms/**/* 
 
 # !Makefile
 
