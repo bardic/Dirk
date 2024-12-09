@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -19,12 +20,54 @@ type LocalGameci struct {
 }
 
 func (m *LocalGameci) EnvTest(ctx context.Context, f *dagger.File) (*dagger.Container, error) {
-	c := dag.Container().From("alpine:latest")
-	c = dag.Env().Load(f, c).
-		WithExec([]string{"sh", "-c", "echo $PASS > o"}).
-		WithExec([]string{"sh", "-c", "echo $HELLO >> o"})
 
-	return c, nil
+	dag.Env().Host(ctx, f)
+
+	/*
+	   --src="./example/game" \
+	       --ulf="./Unity_v6000.x.ulf" \
+	       --build-target="StandaloneWindows64" \
+	       --build-name="demo" \
+	       --platform="windows-mono" \
+	       --os="ubuntu" \
+	       --user=env:USER \
+	       --pass=env:PASS \
+	       export ./builds
+	*/
+
+	// src = src.WithoutDirectory(".git")
+	// src = src.WithoutDirectory(".dagger")
+	// src = src.WithoutDirectory(".vscode")
+	// src = src.WithoutFiles([]string{".gitignore", ".gitmodules", ".DS_Store", "dagger.json", "go.work", "LICENSE", "README.md"})
+
+	// m.Src = src
+	// m.Ulf = ulf
+	// m.User = user
+	// m.Platform = platform
+	// m.BuildTarget = buildTarget
+	// m.Os = os
+	// m.BuildName = buildName
+	// m.Pass = pass
+	// m.Serial = serial
+	// m.ServiceConfig = serviceConfig
+
+	unityVersion, err := m.determineUnityProjectVersion()
+
+	if err != nil {
+		return nil
+	}
+
+	c := dag.Container().From("unityci/editor:" + os.Getenv("OS") + "-" + unityVersion + "-" + platform + "-3.1.0")
+	c.WithEnvVariable("CACHEBUSTER", time.Now().String())
+
+	libCache := dag.CacheVolume("lib")
+
+	c = m.register(c)
+
+	c = c.WithDirectory("/src", m.Src).
+		WithMountedCache("/src/Library/", libCache)
+
+	return c
 }
 
 /*
