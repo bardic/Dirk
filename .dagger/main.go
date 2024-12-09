@@ -13,52 +13,50 @@ import (
 )
 
 type LocalGameci struct {
-	Src                                                            *dagger.Directory
-	Ulf, ServiceConfig                                             *dagger.File
-	User, Platform, BuildTarget, Os, BuildName, TestingingPlatform string
-	Pass, Serial                                                   *dagger.Secret
+	Src                                             *dagger.Directory
+	Ulf, ServiceConfig, JunitTransform              *dagger.File
+	User, Platform, BuildTarget, Os, BuildName      string
+	TestingingPlatform, UnityVersion, GameCIVersion string
+	Pass, Serial                                    *dagger.Secret
 }
 
-func (m *LocalGameci) EnvTest(ctx context.Context, f *dagger.File) (*dagger.Container, error) {
+func (m *LocalGameci) EnvTest(ctx context.Context,
+	gameSrc *dagger.Directory,
+) (*dagger.Directory, error) {
+	fmt.Printf("EnvTest	\n")
 
-	dag.Env().Host(ctx, f)
+	var f, s *dagger.File
 
-	/*
-	   --src="./example/game" \
-	       --ulf="./Unity_v6000.x.ulf" \
-	       --build-target="StandaloneWindows64" \
-	       --build-name="demo" \
-	       --platform="windows-mono" \
-	       --os="ubuntu" \
-	       --user=env:USER \
-	       --pass=env:PASS \
-	       export ./builds
-	*/
+	f = gameSrc.File("./unity.env")
+	s = gameSrc.File("./unity_secrets.env")
 
-	// src = src.WithoutDirectory(".git")
-	// src = src.WithoutDirectory(".dagger")
-	// src = src.WithoutDirectory(".vscode")
-	// src = src.WithoutFiles([]string{".gitignore", ".gitmodules", ".DS_Store", "dagger.json", "go.work", "LICENSE", "README.md"})
+	env := Env{}
+	env.Host(ctx, f)
 
-	// m.Src = src
-	// m.Ulf = ulf
-	// m.User = user
-	// m.Platform = platform
-	// m.BuildTarget = buildTarget
-	// m.Os = os
-	// m.BuildName = buildName
-	// m.Pass = pass
-	// m.Serial = serial
-	// m.ServiceConfig = serviceConfig
+	gameSrc = gameSrc.WithoutDirectory(".git")
+	gameSrc = gameSrc.WithoutDirectory(".dagger")
+	gameSrc = gameSrc.WithoutDirectory(".vscode")
+	gameSrc = gameSrc.WithoutFiles([]string{".gitignore", ".gitmodules", ".DS_Store", "dagger.json", "go.work", "LICENSE", "README.md"})
 
-	unityVersion, err := m.determineUnityProjectVersion()
+	m.Src = gameSrc
+	m.Os = os.Getenv("OS")
+	m.Platform = os.Getenv("PLATFORM")
+	m.GameCIVersion = os.Getenv("GAMECI_VERSION")
+	m.BuildTarget = os.Getenv("BUILD_TARGET")
+	m.BuildName = os.Getenv("BUILD_NAME")
+
+	m.Ulf = gameSrc.File(os.Getenv("ULF"))
+
+	var err error
+	m.UnityVersion, err = m.determineUnityProjectVersion()
 
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	c := dag.Container().From("unityci/editor:" + os.Getenv("OS") + "-" + unityVersion + "-" + platform + "-3.1.0")
-	c.WithEnvVariable("CACHEBUSTER", time.Now().String())
+	c := m.createBaseImage()
+
+	c, _ = env.Container(ctx, s, c, true)
 
 	libCache := dag.CacheVolume("lib")
 
@@ -67,7 +65,20 @@ func (m *LocalGameci) EnvTest(ctx context.Context, f *dagger.File) (*dagger.Cont
 	c = c.WithDirectory("/src", m.Src).
 		WithMountedCache("/src/Library/", libCache)
 
-	return c
+	c = m.build(c)
+	c = m.returnLicense(c)
+
+	err = m.checkForError()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return m.getBuildArtifact(c), nil
+}
+
+func (m *LocalGameci) configureContainerViaEnv(c *dagger.Container) {
+
 }
 
 /*
@@ -139,7 +150,7 @@ func (m *LocalGameci) Build(
 	// +optional
 	serviceConfig *dagger.File,
 ) *dagger.Directory {
-	c := m.createBaseContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf, serviceConfig)
+	c := m.configureContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf, serviceConfig)
 	c = m.build(c)
 	c = m.returnLicense(c)
 
@@ -214,11 +225,23 @@ func (m *LocalGameci) Test(
 	// +optional
 	serviceConfig *dagger.File,
 ) *dagger.Directory {
+	m.Src = src
+	m.User = user
+	m.Platform = platform
+	m.BuildTarget = buildTarget
+	m.Os = os
+	m.BuildName = buildName
 	m.TestingingPlatform = testingingPlatform
-	c := m.createBaseContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf, serviceConfig)
+	m.Pass = pass
+	m.JunitTransform = junitTransform
+	m.Serial = serial
+	m.Ulf = ulf
+	m.ServiceConfig = serviceConfig
+
+	c := m.configureContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf, serviceConfig)
 	c.WithFile("/nunit-transforms/nunit3-junit.xslt", junitTransform)
 
-	c = m.test(c, testingingPlatform)
+	c = m.test(c)
 
 	if junitTransform != nil {
 		f := c.File("/results/" + m.TestingingPlatform + "-results.xml")
@@ -238,7 +261,7 @@ func (m *LocalGameci) Test(
 	return m.getTestResults(c)
 }
 
-func (m *LocalGameci) createBaseContainer(src *dagger.Directory,
+func (m *LocalGameci) configureContainer(src *dagger.Directory,
 	user, platform, buildTarget, os, buildName string,
 	pass *dagger.Secret,
 	// +optional
@@ -264,13 +287,14 @@ func (m *LocalGameci) createBaseContainer(src *dagger.Directory,
 	m.Serial = serial
 	m.ServiceConfig = serviceConfig
 
-	unityVersion, err := m.determineUnityProjectVersion()
+	var err error
+	m.UnityVersion, err = m.determineUnityProjectVersion()
 
 	if err != nil {
 		return nil
 	}
 
-	c := dag.Container().From("unityci/editor:" + os + "-" + unityVersion + "-" + platform + "-3.1.0")
+	c := m.createBaseImage()
 	c.WithEnvVariable("CACHEBUSTER", time.Now().String())
 
 	libCache := dag.CacheVolume("lib")
@@ -298,6 +322,8 @@ func (m *LocalGameci) determineUnityProjectVersion() (string, error) {
 func (m *LocalGameci) build(c *dagger.Container) *dagger.Container {
 	cmd := append(m.baseCommand(),
 		[]string{
+			"-projectPath",
+			"/src",
 			"-buildTarget",
 			m.BuildTarget,
 			"-customBuildPath",
@@ -322,20 +348,20 @@ func (m *LocalGameci) build(c *dagger.Container) *dagger.Container {
 		)
 }
 
-func (m *LocalGameci) test(c *dagger.Container, testingingPlatform string) *dagger.Container {
+func (m *LocalGameci) test(c *dagger.Container) *dagger.Container {
 	cmd := append(m.baseCommand(),
 		[]string{
 			"-runTests",
 			"-testResults",
-			"/results/" + testingingPlatform + "-results.xml",
+			"/results/" + m.TestingingPlatform + "-results.xml",
 			"-debugCodeOptimization",
 			"-enableCodeCoverage",
 			"-coverageResultsPath",
-			"/results/" + testingingPlatform + "-coverage/",
+			"/results/" + m.TestingingPlatform + "-coverage/",
 			"-coverageHistoryPath",
-			"/results/" + testingingPlatform + "-coverage-history/",
+			"/results/" + m.TestingingPlatform + "-coverage-history/",
 			"-testPlatform",
-			testingingPlatform,
+			m.TestingingPlatform,
 			"-coverageOptions",
 			"'generateAdditionalMetrics;generateHtmlReport;generateHtmlReportHistory;generateBadgeReport;verbosity:verbose'",
 			"-logFile",
@@ -380,18 +406,13 @@ func (m *LocalGameci) register(c *dagger.Container) *dagger.Container {
 }
 
 func (m *LocalGameci) registerPersonalLicense(c *dagger.Container) *dagger.Container {
-	p, err := m.Pass.Plaintext(marshalCtx)
-
-	if err != nil {
-		return nil
-	}
 
 	cmd := append(m.baseCommand(),
 		[]string{
 			"-username",
-			m.User,
+			"echo ${USER}",
 			"-password",
-			p,
+			"echo ${PASS}",
 		}...,
 	)
 
@@ -411,18 +432,12 @@ func (m *LocalGameci) registerSerialLicense(c *dagger.Container) *dagger.Contain
 		return nil
 	}
 
-	p, err := m.Pass.Plaintext(marshalCtx)
-
-	if err != nil {
-		return nil
-	}
-
 	cmd := append(m.baseCommand(),
 		[]string{
 			"-username",
-			m.User,
+			"echo ${USER}",
 			"-password",
-			p,
+			"echo ${PASS}",
 			"-serial",
 			s,
 		}...,
@@ -465,8 +480,6 @@ func (m *LocalGameci) baseCommand() []string {
 		"--server-args='-screen 0 640x480x24'",
 		"unity-editor",
 		"-nographics",
-		"-projectPath",
-		"/src",
 	}
 }
 
@@ -490,4 +503,8 @@ func (m *LocalGameci) convertTestsToJUNIT(f, transform *dagger.File) *dagger.Fil
 			"saxonb-xslt -s /results/" + m.TestingingPlatform + "-results.xml -xsl /nunit-transforms/nunit3-junit.xslt > /results/" + m.TestingingPlatform + "-junit-results.xml",
 		}).
 		File("/results/" + m.TestingingPlatform + "-junit-results.xml")
+}
+
+func (m *LocalGameci) createBaseImage() *dagger.Container {
+	return dag.Container().From("unityci/editor:" + m.Os + "-" + m.UnityVersion + "-" + m.Platform + "-" + m.GameCIVersion)
 }
