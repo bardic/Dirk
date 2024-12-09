@@ -1,4 +1,4 @@
-// LocalGameci is a Dagger implementation of the GameCI.
+// Dirk is a Dagger implementation of the GameCI.
 // This allows you to build and test Unity projects locally and in CI.
 package main
 
@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bardic/local_gameci/internal/dagger"
+	"github.com/bardic/Dirk/internal/dagger"
 )
 
-type LocalGameci struct {
+type Dirk struct {
 	Src                                             *dagger.Directory
 	Ulf, ServiceConfig, JunitTransform              *dagger.File
 	User, Platform, BuildTarget, Os, BuildName      string
@@ -20,7 +20,7 @@ type LocalGameci struct {
 	Pass, Serial                                    *dagger.Secret
 }
 
-func (m *LocalGameci) EnvTest(ctx context.Context,
+func (d *Dirk) EnvTest(ctx context.Context,
 	gameSrc *dagger.Directory,
 ) (*dagger.Directory, error) {
 	fmt.Printf("EnvTest	\n")
@@ -38,47 +38,43 @@ func (m *LocalGameci) EnvTest(ctx context.Context,
 	gameSrc = gameSrc.WithoutDirectory(".vscode")
 	gameSrc = gameSrc.WithoutFiles([]string{".gitignore", ".gitmodules", ".DS_Store", "dagger.json", "go.work", "LICENSE", "README.md"})
 
-	m.Src = gameSrc
-	m.Os = os.Getenv("OS")
-	m.Platform = os.Getenv("PLATFORM")
-	m.GameCIVersion = os.Getenv("GAMECI_VERSION")
-	m.BuildTarget = os.Getenv("BUILD_TARGET")
-	m.BuildName = os.Getenv("BUILD_NAME")
+	d.Src = gameSrc
+	d.Os = os.Getenv("OS")
+	d.Platform = os.Getenv("PLATFORM")
+	d.GameCIVersion = os.Getenv("GAMECI_VERSION")
+	d.BuildTarget = os.Getenv("BUILD_TARGET")
+	d.BuildName = os.Getenv("BUILD_NAME")
 
-	m.Ulf = gameSrc.File(os.Getenv("ULF"))
+	d.Ulf = gameSrc.File(os.Getenv("ULF"))
 
 	var err error
-	m.UnityVersion, err = m.determineUnityProjectVersion()
+	d.UnityVersion, err = d.determineUnityProjectVersion()
 
 	if err != nil {
 		return nil, err
 	}
 
-	c := m.createBaseImage()
+	c := d.createBaseImage()
 
 	c, _ = env.Container(ctx, s, c, true)
 
 	libCache := dag.CacheVolume("lib")
 
-	c = m.register(c)
+	c = d.register(c)
 
-	c = c.WithDirectory("/src", m.Src).
+	c = c.WithDirectory("/src", d.Src).
 		WithMountedCache("/src/Library/", libCache)
 
-	c = m.build(c)
-	c = m.returnLicense(c)
+	c = d.build(c)
+	c = d.returnLicense(c)
 
-	err = m.checkForError()
+	err = d.checkForError()
 
 	if err != nil {
 		return nil, err
 	}
 
-	return m.getBuildArtifact(c), nil
-}
-
-func (m *LocalGameci) configureContainerViaEnv(c *dagger.Container) {
-
+	return d.getBuildArtifact(c), nil
 }
 
 /*
@@ -139,7 +135,7 @@ Example:
 		--service-config="./service-config.json" \
 		export ./builds
 */
-func (m *LocalGameci) Build(
+func (d *Dirk) Build(
 	src *dagger.Directory,
 	user, platform, buildTarget, os, buildName string,
 	pass *dagger.Secret,
@@ -150,17 +146,17 @@ func (m *LocalGameci) Build(
 	// +optional
 	serviceConfig *dagger.File,
 ) *dagger.Directory {
-	c := m.configureContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf, serviceConfig)
-	c = m.build(c)
-	c = m.returnLicense(c)
+	c := d.configureContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf, serviceConfig)
+	c = d.build(c)
+	c = d.returnLicense(c)
 
-	err := m.checkForError()
+	err := d.checkForError()
 
 	if err != nil {
 		return nil
 	}
 
-	return m.getBuildArtifact(c)
+	return d.getBuildArtifact(c)
 }
 
 /*
@@ -207,7 +203,7 @@ Example:
 
 */
 
-func (m *LocalGameci) Test(
+func (d *Dirk) Test(
 	src *dagger.Directory,
 	user string,
 	platform string,
@@ -225,43 +221,43 @@ func (m *LocalGameci) Test(
 	// +optional
 	serviceConfig *dagger.File,
 ) *dagger.Directory {
-	m.Src = src
-	m.User = user
-	m.Platform = platform
-	m.BuildTarget = buildTarget
-	m.Os = os
-	m.BuildName = buildName
-	m.TestingingPlatform = testingingPlatform
-	m.Pass = pass
-	m.JunitTransform = junitTransform
-	m.Serial = serial
-	m.Ulf = ulf
-	m.ServiceConfig = serviceConfig
+	d.Src = src
+	d.User = user
+	d.Platform = platform
+	d.BuildTarget = buildTarget
+	d.Os = os
+	d.BuildName = buildName
+	d.TestingingPlatform = testingingPlatform
+	d.Pass = pass
+	d.JunitTransform = junitTransform
+	d.Serial = serial
+	d.Ulf = ulf
+	d.ServiceConfig = serviceConfig
 
-	c := m.configureContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf, serviceConfig)
+	c := d.configureContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf, serviceConfig)
 	c.WithFile("/nunit-transforms/nunit3-junit.xslt", junitTransform)
 
-	c = m.test(c)
+	c = d.test(c)
 
 	if junitTransform != nil {
-		f := c.File("/results/" + m.TestingingPlatform + "-results.xml")
-		jf := m.convertTestsToJUNIT(f, junitTransform)
+		f := c.File("/results/" + d.TestingingPlatform + "-results.xml")
+		jf := d.convertTestsToJUNIT(f, junitTransform)
 
-		c = c.WithFile("/results/"+m.TestingingPlatform+"-junit-results.xml", jf)
+		c = c.WithFile("/results/"+d.TestingingPlatform+"-junit-results.xml", jf)
 	}
 
-	c = m.returnLicense(c)
+	c = d.returnLicense(c)
 
-	err := m.checkForError()
+	err := d.checkForError()
 
 	if err != nil {
 		return nil
 	}
 
-	return m.getTestResults(c)
+	return d.getTestResults(c)
 }
 
-func (m *LocalGameci) configureContainer(src *dagger.Directory,
+func (d *Dirk) configureContainer(src *dagger.Directory,
 	user, platform, buildTarget, os, buildName string,
 	pass *dagger.Secret,
 	// +optional
@@ -276,39 +272,39 @@ func (m *LocalGameci) configureContainer(src *dagger.Directory,
 	src = src.WithoutDirectory(".vscode")
 	src = src.WithoutFiles([]string{".gitignore", ".gitmodules", ".DS_Store", "dagger.json", "go.work", "LICENSE", "README.md"})
 
-	m.Src = src
-	m.Ulf = ulf
-	m.User = user
-	m.Platform = platform
-	m.BuildTarget = buildTarget
-	m.Os = os
-	m.BuildName = buildName
-	m.Pass = pass
-	m.Serial = serial
-	m.ServiceConfig = serviceConfig
+	d.Src = src
+	d.Ulf = ulf
+	d.User = user
+	d.Platform = platform
+	d.BuildTarget = buildTarget
+	d.Os = os
+	d.BuildName = buildName
+	d.Pass = pass
+	d.Serial = serial
+	d.ServiceConfig = serviceConfig
 
 	var err error
-	m.UnityVersion, err = m.determineUnityProjectVersion()
+	d.UnityVersion, err = d.determineUnityProjectVersion()
 
 	if err != nil {
 		return nil
 	}
 
-	c := m.createBaseImage()
+	c := d.createBaseImage()
 	c.WithEnvVariable("CACHEBUSTER", time.Now().String())
 
 	libCache := dag.CacheVolume("lib")
 
-	c = m.register(c)
+	c = d.register(c)
 
-	c = c.WithDirectory("/src", m.Src).
+	c = c.WithDirectory("/src", d.Src).
 		WithMountedCache("/src/Library/", libCache)
 
 	return c
 }
 
-func (m *LocalGameci) determineUnityProjectVersion() (string, error) {
-	s, err := m.Src.File("ProjectSettings/ProjectVersion.txt").Contents(marshalCtx)
+func (d *Dirk) determineUnityProjectVersion() (string, error) {
+	s, err := d.Src.File("ProjectSettings/ProjectVersion.txt").Contents(marshalCtx)
 
 	if err != nil {
 		return "", err
@@ -319,19 +315,19 @@ func (m *LocalGameci) determineUnityProjectVersion() (string, error) {
 	return v, nil
 }
 
-func (m *LocalGameci) build(c *dagger.Container) *dagger.Container {
-	cmd := append(m.baseCommand(),
+func (d *Dirk) build(c *dagger.Container) *dagger.Container {
+	cmd := append(d.baseCommand(),
 		[]string{
 			"-projectPath",
 			"/src",
 			"-buildTarget",
-			m.BuildTarget,
+			d.BuildTarget,
 			"-customBuildPath",
 			"/builds/",
 			"-customBuildName",
-			m.BuildName,
+			d.BuildName,
 			"-customBuildTarget",
-			m.BuildTarget,
+			d.BuildTarget,
 			"-quit",
 			"-executeMethod",
 			"BuildCommand.PerformBuild",
@@ -348,20 +344,20 @@ func (m *LocalGameci) build(c *dagger.Container) *dagger.Container {
 		)
 }
 
-func (m *LocalGameci) test(c *dagger.Container) *dagger.Container {
-	cmd := append(m.baseCommand(),
+func (d *Dirk) test(c *dagger.Container) *dagger.Container {
+	cmd := append(d.baseCommand(),
 		[]string{
 			"-runTests",
 			"-testResults",
-			"/results/" + m.TestingingPlatform + "-results.xml",
+			"/results/" + d.TestingingPlatform + "-results.xml",
 			"-debugCodeOptimization",
 			"-enableCodeCoverage",
 			"-coverageResultsPath",
-			"/results/" + m.TestingingPlatform + "-coverage/",
+			"/results/" + d.TestingingPlatform + "-coverage/",
 			"-coverageHistoryPath",
-			"/results/" + m.TestingingPlatform + "-coverage-history/",
+			"/results/" + d.TestingingPlatform + "-coverage-history/",
 			"-testPlatform",
-			m.TestingingPlatform,
+			d.TestingingPlatform,
 			"-coverageOptions",
 			"'generateAdditionalMetrics;generateHtmlReport;generateHtmlReportHistory;generateBadgeReport;verbosity:verbose'",
 			"-logFile",
@@ -376,38 +372,38 @@ func (m *LocalGameci) test(c *dagger.Container) *dagger.Container {
 		)
 }
 
-func (m *LocalGameci) getBuildArtifact(c *dagger.Container) *dagger.Directory {
+func (d *Dirk) getBuildArtifact(c *dagger.Container) *dagger.Directory {
 	return c.
 		Directory("/builds")
 }
 
-func (m *LocalGameci) getTestResults(c *dagger.Container) *dagger.Directory {
+func (d *Dirk) getTestResults(c *dagger.Container) *dagger.Directory {
 	return c.
 		Directory("/results")
 }
 
-func (m *LocalGameci) register(c *dagger.Container) *dagger.Container {
-	if m.Ulf != nil {
+func (d *Dirk) register(c *dagger.Container) *dagger.Container {
+	if d.Ulf != nil {
 		fmt.Println("Registering personal license")
-		c = m.registerPersonalLicense(c)
+		c = d.registerPersonalLicense(c)
 	}
 
-	if m.Serial != nil {
+	if d.Serial != nil {
 		fmt.Println("Registering serial license")
-		c = m.registerSerialLicense(c)
+		c = d.registerSerialLicense(c)
 	}
 
-	if m.ServiceConfig != nil {
+	if d.ServiceConfig != nil {
 		fmt.Println("Registering license server")
-		c = m.registerLicenseServer(c)
+		c = d.registerLicenseServer(c)
 	}
 
 	return c
 }
 
-func (m *LocalGameci) registerPersonalLicense(c *dagger.Container) *dagger.Container {
+func (d *Dirk) registerPersonalLicense(c *dagger.Container) *dagger.Container {
 
-	cmd := append(m.baseCommand(),
+	cmd := append(d.baseCommand(),
 		[]string{
 			"-username",
 			"echo ${USER}",
@@ -417,7 +413,7 @@ func (m *LocalGameci) registerPersonalLicense(c *dagger.Container) *dagger.Conta
 	)
 
 	return c.
-		WithFile("/root/.local/share/unity3d/Unity/Unity_lic.ulf", m.Ulf).
+		WithFile("/root/.local/share/unity3d/Unity/Unity_lic.ulf", d.Ulf).
 		WithExec(cmd,
 			dagger.ContainerWithExecOpts{
 				Expect: dagger.ReturnTypeAny,
@@ -425,14 +421,14 @@ func (m *LocalGameci) registerPersonalLicense(c *dagger.Container) *dagger.Conta
 		)
 }
 
-func (m *LocalGameci) registerSerialLicense(c *dagger.Container) *dagger.Container {
-	s, err := m.Serial.Plaintext(marshalCtx)
+func (d *Dirk) registerSerialLicense(c *dagger.Container) *dagger.Container {
+	s, err := d.Serial.Plaintext(marshalCtx)
 
 	if err != nil {
 		return nil
 	}
 
-	cmd := append(m.baseCommand(),
+	cmd := append(d.baseCommand(),
 		[]string{
 			"-username",
 			"echo ${USER}",
@@ -451,8 +447,8 @@ func (m *LocalGameci) registerSerialLicense(c *dagger.Container) *dagger.Contain
 		)
 }
 
-func (m *LocalGameci) registerLicenseServer(c *dagger.Container) *dagger.Container {
-	return c.WithFile("/usr/share/unity3d/config/services-config.json", m.ServiceConfig).
+func (d *Dirk) registerLicenseServer(c *dagger.Container) *dagger.Container {
+	return c.WithFile("/usr/share/unity3d/config/services-config.json", d.ServiceConfig).
 		WithExec([]string{
 			"sh",
 			"-c",
@@ -460,20 +456,20 @@ func (m *LocalGameci) registerLicenseServer(c *dagger.Container) *dagger.Contain
 		})
 }
 
-func (m *LocalGameci) returnLicense(c *dagger.Container) *dagger.Container {
+func (d *Dirk) returnLicense(c *dagger.Container) *dagger.Container {
 
-	cmd := append(m.baseCommand(), []string{"-returnlicense"}...)
+	cmd := append(d.baseCommand(), []string{"-returnlicense"}...)
 	return c.
 		WithExec(cmd, dagger.ContainerWithExecOpts{
 			Expect: dagger.ReturnTypeAny,
 		})
 }
 
-func (m *LocalGameci) checkForError() error {
+func (d *Dirk) checkForError() error {
 	return nil
 }
 
-func (m *LocalGameci) baseCommand() []string {
+func (d *Dirk) baseCommand() []string {
 	return []string{
 		"xvfb-run",
 		"--auto-servernum",
@@ -483,7 +479,7 @@ func (m *LocalGameci) baseCommand() []string {
 	}
 }
 
-func (m *LocalGameci) convertTestsToJUNIT(f, transform *dagger.File) *dagger.File {
+func (d *Dirk) convertTestsToJUNIT(f, transform *dagger.File) *dagger.File {
 	return dag.Container().From("eclipse-temurin").
 		WithExec([]string{
 			"apt-get",
@@ -495,16 +491,16 @@ func (m *LocalGameci) convertTestsToJUNIT(f, transform *dagger.File) *dagger.Fil
 			"-y",
 			"libsaxonb-java",
 		}).
-		WithFile("/results/"+m.TestingingPlatform+"-results.xml", f).
+		WithFile("/results/"+d.TestingingPlatform+"-results.xml", f).
 		WithFile("/nunit-transforms/nunit3-junit.xslt", transform).
 		WithExec([]string{
 			"sh",
 			"-c",
-			"saxonb-xslt -s /results/" + m.TestingingPlatform + "-results.xml -xsl /nunit-transforms/nunit3-junit.xslt > /results/" + m.TestingingPlatform + "-junit-results.xml",
+			"saxonb-xslt -s /results/" + d.TestingingPlatform + "-results.xml -xsl /nunit-transforms/nunit3-junit.xslt > /results/" + d.TestingingPlatform + "-junit-results.xml",
 		}).
-		File("/results/" + m.TestingingPlatform + "-junit-results.xml")
+		File("/results/" + d.TestingingPlatform + "-junit-results.xml")
 }
 
-func (m *LocalGameci) createBaseImage() *dagger.Container {
-	return dag.Container().From("unityci/editor:" + m.Os + "-" + m.UnityVersion + "-" + m.Platform + "-" + m.GameCIVersion)
+func (d *Dirk) createBaseImage() *dagger.Container {
+	return dag.Container().From("unityci/editor:" + d.Os + "-" + d.UnityVersion + "-" + d.Platform + "-" + d.GameCIVersion)
 }

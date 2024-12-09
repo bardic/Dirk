@@ -1,4 +1,4 @@
-# Local Game CI
+# Dirk
 
 Leverage DaggerCI and GameCI to create local and remote builds
 

@@ -6,12 +6,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bardic/local_gameci/internal/dagger"
+	"github.com/bardic/Dirk/internal/dagger"
 )
 
 type Env struct{}
 
-func (m *Env) Host(ctx context.Context, f *dagger.File) error {
+func (e *Env) Host(ctx context.Context, f *dagger.File) error {
 
 	envs, err := f.Contents(ctx)
 
@@ -34,7 +34,7 @@ func (m *Env) Host(ctx context.Context, f *dagger.File) error {
 	return nil
 }
 
-func (m *Env) Container(ctx context.Context, f *dagger.File, c *dagger.Container,
+func (e *Env) Container(ctx context.Context, f *dagger.File, c *dagger.Container,
 	// +optional
 	isSecrets bool,
 ) (*dagger.Container, error) {
