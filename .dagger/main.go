@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,15 @@ type LocalGameci struct {
 	Ulf, ServiceConfig                                             *dagger.File
 	User, Platform, BuildTarget, Os, BuildName, TestingingPlatform string
 	Pass, Serial                                                   *dagger.Secret
+}
+
+func (m *LocalGameci) EnvTest(ctx context.Context, f *dagger.File) (*dagger.Container, error) {
+	c := dag.Container().From("alpine:latest")
+	c = dag.Env().Load(f, c).
+		WithExec([]string{"sh", "-c", "echo $PASS > o"}).
+		WithExec([]string{"sh", "-c", "echo $HELLO >> o"})
+
+	return c, nil
 }
 
 /*
@@ -87,7 +97,6 @@ func (m *LocalGameci) Build(
 	serviceConfig *dagger.File,
 ) *dagger.Directory {
 	c := m.createBaseContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf, serviceConfig)
-
 	c = m.build(c)
 	c = m.returnLicense(c)
 
