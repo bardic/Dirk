@@ -9,8 +9,14 @@ import (
 	"github.com/bardic/Dirk/internal/dagger"
 )
 
+// End struct
 type Env struct{}
 
+func NewEnv() *Env {
+	return &Env{}
+}
+
+// Host
 func (e *Env) Host(ctx context.Context, f *dagger.File) error {
 
 	envs, err := f.Contents(ctx)
@@ -34,6 +40,7 @@ func (e *Env) Host(ctx context.Context, f *dagger.File) error {
 	return nil
 }
 
+// Container
 func (e *Env) Container(ctx context.Context, f *dagger.File, c *dagger.Container,
 	// +optional
 	isSecrets bool,
