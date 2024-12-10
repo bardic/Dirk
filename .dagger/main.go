@@ -1,82 +1,3 @@
-// Dirk is a Dagger implementation of the GameCI.
-// This allows you to build and test Unity projects locally and in CI.
-package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-	"strings"
-	"time"
-
-	"github.com/bardic/Dirk/internal/dagger"
-)
-
-type Dirk struct {
-	Src                                             *dagger.Directory
-	Ulf, ServiceConfig, JunitTransform              *dagger.File
-	User, Platform, BuildTarget, Os, BuildName      string
-	TestingingPlatform, UnityVersion, GameCIVersion string
-	Pass, Serial                                    *dagger.Secret
-}
-
-func (d *Dirk) EnvTest(ctx context.Context,
-	gameSrc *dagger.Directory,
-) (*dagger.Directory, error) {
-	fmt.Printf("EnvTest	\n")
-
-	var f, s *dagger.File
-
-	f = gameSrc.File("./unity.env")
-	s = gameSrc.File("./unity_secrets.env")
-
-	env := Env{}
-	env.Host(ctx, f)
-
-	gameSrc = gameSrc.WithoutDirectory(".git")
-	gameSrc = gameSrc.WithoutDirectory(".dagger")
-	gameSrc = gameSrc.WithoutDirectory(".vscode")
-	gameSrc = gameSrc.WithoutFiles([]string{".gitignore", ".gitmodules", ".DS_Store", "dagger.json", "go.work", "LICENSE", "README.md"})
-
-	d.Src = gameSrc
-	d.Os = os.Getenv("OS")
-	d.Platform = os.Getenv("PLATFORM")
-	d.GameCIVersion = os.Getenv("GAMECI_VERSION")
-	d.BuildTarget = os.Getenv("BUILD_TARGET")
-	d.BuildName = os.Getenv("BUILD_NAME")
-
-	d.Ulf = gameSrc.File(os.Getenv("ULF"))
-
-	var err error
-	d.UnityVersion, err = d.determineUnityProjectVersion()
-
-	if err != nil {
-		return nil, err
-	}
-
-	c := d.createBaseImage()
-
-	c, _ = env.Container(ctx, s, c, true)
-
-	libCache := dag.CacheVolume("lib")
-
-	c = d.register(c)
-
-	c = c.WithDirectory("/src", d.Src).
-		WithMountedCache("/src/Library/", libCache)
-
-	c = d.build(c)
-	c = d.returnLicense(c)
-
-	err = d.checkForError()
-
-	if err != nil {
-		return nil, err
-	}
-
-	return d.getBuildArtifact(c), nil
-}
-
 /*
 Build takes a source directory and builds the Unity project within it.
 Usage:
@@ -135,9 +56,41 @@ Example:
 		--service-config="./service-config.json" \
 		export ./builds
 */
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/bardic/Dirk/internal/dagger"
+)
+
+type Dirk struct {
+	Src                                             *dagger.Directory
+	Ulf, ServiceConfig, JunitTransform              *dagger.File
+	User, Platform, BuildTarget, Os, BuildName      string
+	TestingingPlatform, UnityVersion, GameCIVersion string
+	Pass, Serial                                    *dagger.Secret
+}
+
+// Build the things
 func (d *Dirk) Build(
-	src *dagger.Directory,
-	user, platform, buildTarget, os, buildName string,
+	ctx context.Context,
+	gameSrc *dagger.Directory, // Source directory of the Unity project
+	// +optional
+	user string, // Unity Account Username
+	// +optional
+	platform string, // Unity Platform
+	// +optional
+	buildTarget string, // Unity Build Target
+	// +optional
+	targetOs string, // Target OS
+	// +optional
+	buildName string,
+	// +optional
 	pass *dagger.Secret,
 	// +optional
 	serial *dagger.Secret,
@@ -145,18 +98,110 @@ func (d *Dirk) Build(
 	ulf *dagger.File,
 	// +optional
 	serviceConfig *dagger.File,
-) *dagger.Directory {
-	c := d.configureContainer(src, user, platform, buildTarget, os, buildName, pass, serial, ulf, serviceConfig)
+	// +optional
+	unityVersion string,
+	// +optional
+	gameCIVersion string,
+) (*dagger.Directory, error) {
+	gameSrc = gameSrc.WithoutDirectory(".git")
+	gameSrc = gameSrc.WithoutDirectory(".dagger")
+	gameSrc = gameSrc.WithoutDirectory(".vscode")
+	gameSrc = gameSrc.WithoutFiles([]string{".gitignore", ".gitmodules", ".DS_Store", "dagger.json", "go.work", "LICENSE", "README.md"})
+
+	d.Src = gameSrc
+
+	var f, s *dagger.File
+
+	f = gameSrc.File("./unity.env")
+	s = gameSrc.File("./unity_secrets.env")
+
+	env := Env{}
+	env.Host(ctx, f)
+
+	d.User = os.Getenv("USER")
+	d.Platform = os.Getenv("PLATFORM")
+	d.BuildTarget = os.Getenv("BUILD_TARGET")
+	d.Os = os.Getenv("OS")
+	d.BuildName = os.Getenv("BUILD_NAME")
+	d.Pass = dag.Secret(os.Getenv("PASS"))
+	d.Serial = dag.Secret(os.Getenv("SERIAL"))
+	d.ServiceConfig = gameSrc.File(os.Getenv("SERVICE_CONFIG"))
+	d.GameCIVersion = os.Getenv("GAMECI_VERSION")
+	d.Ulf = gameSrc.File(os.Getenv("ULF"))
+	d.UnityVersion = os.Getenv("UNITY_VERSION")
+
+	var err error
+	d.UnityVersion, err = d.determineUnityProjectVersion()
+
+	if user != "" {
+		d.User = user
+	}
+
+	if platform != "" {
+		d.Platform = platform
+	}
+
+	if buildTarget != "" {
+		d.BuildTarget = buildTarget
+	}
+
+	if targetOs != "" {
+		d.Os = targetOs
+	}
+
+	if buildName != "" {
+		d.BuildName = buildName
+	}
+
+	if pass != nil {
+		d.Pass = pass
+	}
+
+	if serial != nil {
+		d.Serial = serial
+	}
+
+	if ulf != nil {
+		d.Ulf = ulf
+	}
+
+	if serviceConfig != nil {
+		d.ServiceConfig = serviceConfig
+	}
+
+	if unityVersion != "" {
+		d.UnityVersion = unityVersion
+	}
+
+	if gameCIVersion != "" {
+		d.GameCIVersion = gameCIVersion
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	c := d.createBaseImage()
+
+	c, _ = env.Container(ctx, s, c, true)
+
+	libCache := dag.CacheVolume("lib")
+
+	c = d.register(c)
+
+	c = c.WithDirectory("/src", d.Src).
+		WithMountedCache("/src/Library/", libCache)
+
 	c = d.build(c)
 	c = d.returnLicense(c)
 
-	err := d.checkForError()
+	err = d.checkForError()
 
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	return d.getBuildArtifact(c)
+	return d.getBuildArtifact(c), nil
 }
 
 /*
