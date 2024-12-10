@@ -1,106 +1,75 @@
 # Dirk
 
-Leverage DaggerCI and GameCI to create local and remote builds
+Leverage DaggerCI and GameCI to create local and remote Unity3d builds
 
+## Opiniated
+
+Dirk is opiniated in regards to params but gives you several ways to apply variables to ensure your needs are met.
+
+It does this parsing variables in this order:
+
+- System Environment Variables
+- [A local dotenv file](#local-dotenv-files)
+- CLI argumenets
+
+## [Local dotenv files]
+
+Dirk will check in the root of your project for 4 files:
+
+- `unity.env`
+- `unity_secrets.env`
+- `unity_test.env`
+- `unity_test_secrets.env`
+
+It is recommended that you store what variables you can as code to be commited, excluding the secret dotenvs.
+
+THOSE SHOULD NEVER BE COMMITED
+
+There is nothing stopping you from placing your secrets in the regular dotenv but if you they will appear as plain text in the logs. The secrets dotenv leverages Dagger Secrets to inject a secret into the build container and scrub it from the logs.
 
 ## Build
 
-```
-// Build unity project with a personal license targeting Windows Mono on Ubuntu
-dagger call test --src="./example/game" \
-    --ulf="./Unity_v6000.x.ulf" \
-    --build-target="StandaloneWindows64" \
-    --build-name="demo" \
-    --platform="windows-mono" \
-    --os="ubuntu" \
-    --user=env:USER \
-    --pass=env:PASS \
-    export ./builds
-```
-```
-// Build unity project with a User and Serail targeting Windows Mono on Ubuntu
-dagger call test --src="./example/game" \
-    --build-target="StandaloneWindows64" \
-    --build-name="demo" \
-    --platform="windows-mono" \
-    --os="ubuntu" \
-    --user=env:USER \
-    --pass=env:PASS \
-    --serial=env:SERIAL \
-    export ./builds
-```
+`--gameSrc` is the only "required" param. If no params are set, Dirk will assume that these values have been set via the dotenv or as an environment variable.
 
 ```
-// Build unity project with Service Config (float license) targeting Windows Mono on Ubuntu
-dagger call test --src="./example/game" \
-    --build-target="StandaloneWindows64" \
+dagger call build \
+    --game-src="./example/game" \
     --build-name="demo" \
-    --platform="windows-mono" \
-    --os="ubuntu" \
-    --user=env:USER \
-    --pass=env:PASS \
-    --service-config="./service-config.json" \
-    export ./builds
+    --build-target="StandaloneOSX|StandaloneWindows|iOS|Android|StandaloneWindows64|WebGL|StandaloneLinux64|tvOS" \
+    --gameci-version="3.1.0" \
+    --pass="DONT-PASS-IT-PLAIN-TEXT-BUT-YOU-CAN" \
+    --platform="android|webgl|windows-mono|ios|mac-mono|linux-il2cpp|base" \
+    --serial="DONT-PASS-IT-PLAIN-TEXT-BUT-YOU-CAN" \
+    --service-config="./services-config.json" \
+    --target-os="ubuntu|windows" \
+    --ulf="./Unity_v6000.x.ulf" \
+    --unity-version="6000.0.29f1" \
+    --user="email@address.com" \
+    export --path=./builds
 ```
 
 ## Test
+
 ```
-// Test unity project with personal license targeting Windows Mono on Ubuntu
-dagger call test \
-    --src="./example/game" \
-    --user=env:USER \
-    --platform="windows-mono" \
-    --build-target="StandaloneWindows64" \
-    --os="ubuntu" \
+dagger call test
+    --game-src="./example/game" \
     --build-name="demo" \
-    --testinging-platform="editor" \
-    --pass=env:PASS \
-    --junitTransform="/nunit-transforms/nunit3-junit.xslt" \
+    --build-target="StandaloneOSX|StandaloneWindows|iOS|Android|StandaloneWindows64|WebGL|StandaloneLinux64|tvOS" \
+    --gameci-version="3.1.0" \
+    --junit-transform="./nunit-transforms/nunit3-junit.xslt" \
+    --pass="DONT-PASS-IT-PLAIN-TEXT-BUT-YOU-CAN" \
+    --platform="android|webgl|windows-mono|ios|mac-mono|linux-il2cpp|base" \
+    --serial="DONT-PASS-IT-PLAIN-TEXT-BUT-YOU-CAN" \
+    --service-config="./services-config.json" \
+    --target-os="ubuntu|windows" \
+    --testinging-platform="editor|play" \
     --ulf="./Unity_v6000.x.ulf" \
-    export ./results
+    --unity-version="6000.0.29f1" \
+    --user="email@address.com" \
+    export --path=./tests
 ```
 
 ## Setup
 
 **ULF**
-Refer to GameCI [documentation](https://game.ci/docs/gitlab/activation#b-locally) on how to active a personal licesnce.  This is how you will retreive your ULF. 
-
-**Build Targets**
-
-```
-    StandaloneOSX	Build a macOS standalone (Intel 64-bit).
-    StandaloneWindows	Build a Windows 32-bit standalone.
-    iOS	Build an iOS player.
-    Android	Build an Android .apk standalone app.
-    StandaloneWindows64	Build a Windows 64-bit standalone.
-    WebGL	Build to WebGL platform.
-    WSAPlayer	Build an Windows Store Apps player.
-    StandaloneLinux64	Build a Linux 64-bit standalone.
-    PS4	Build a PS4 Standalone.
-    XboxOne	Build a Xbox One Standalone.
-    tvOS	Build to Apple's tvOS platform.
-    Switch	Build a Nintendo Switch player.
-    LinuxHeadlessSimulation	Build a LinuxHeadlessSimulation standalone.
-```
-
-**OS/Platform**
-
-windows:
-```
-    android
-    windows-il2cpp
-    universal-windows-platform
-    appletv
-    base
-```
-
-ubuntu:
-```
-    android
-    webgl
-    windows-mono
-    ios
-    mac-mono
-    linux-il2cpp
-    base
-```
+Refer to GameCI [documentation](https://game.ci/docs/gitlab/activation#b-locally) on how to active a personal licesnce. This is how you will retreive your ULF.

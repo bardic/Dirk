@@ -12,6 +12,10 @@ import (
 // End struct
 type Env struct{}
 
+func NewEnv() *Env {
+	return &Env{}
+}
+
 // Host
 func (e *Env) Host(ctx context.Context, f *dagger.File) error {
 
