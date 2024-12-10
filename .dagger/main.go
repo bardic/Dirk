@@ -73,14 +73,16 @@ func (d *Dirk) Build(
 
 	var f, s *dagger.File
 
-	if _, err := os.Stat("./unity.env"); err == nil {
-		f = gameSrc.File("./unity.env")
+	f = gameSrc.File("./unity.env")
+
+	if f != nil {
 		NewEnv().Host(context.Background(), f)
 	}
 
 	d.BuildName = os.Getenv("DIRK_BUILD_NAME")
 	d.BuildTarget = os.Getenv("DIRK_BUILD_TARGET")
 	d.GameciVersion = os.Getenv("DIRK_GAMECI_VERSION")
+
 	d.Os = os.Getenv("DIRK_OS")
 
 	if _, b := os.LookupEnv("DIRK_PASS"); b {
@@ -150,14 +152,10 @@ func (d *Dirk) Build(
 		d.User = user
 	}
 
-	if err != nil {
-		return nil, err
-	}
-
 	c := d.createBaseImage()
 
-	if _, err := os.Stat("./unity_secrets.env"); err == nil {
-		s = gameSrc.File("./unity_secrets.env")
+	s = gameSrc.File("./unity_secrets.env")
+	if s != nil {
 		c, _ = NewEnv().Container(ctx, s, c, true)
 	}
 
@@ -208,7 +206,7 @@ func (d *Dirk) Test(
 	user string,
 ) (*dagger.Directory, error) {
 	gameSrc = gameSrc.WithoutDirectory(".git")
-	//gameSrc = gameSrc.WithoutDirectory(".dagger")
+	gameSrc = gameSrc.WithoutDirectory(".dagger")
 	gameSrc = gameSrc.WithoutDirectory(".vscode")
 	gameSrc = gameSrc.WithoutFiles([]string{".gitignore", ".gitmodules", ".DS_Store", "dagger.json", "go.work", "LICENSE", "README.md"})
 
@@ -222,44 +220,46 @@ func (d *Dirk) Test(
 	}
 	var f, s *dagger.File
 
-	if _, err := os.Stat("./unity_test.env"); err == nil {
-		f = gameSrc.File("./unity_test.env")
+	f = gameSrc.File("./unity_test.env")
+
+	if f != nil {
+		fmt.Println("Setting env vars")
 		NewEnv().Host(context.Background(), f)
 	}
 
-	d.GameciVersion = os.Getenv("GAMECI_VERSION")
+	d.GameciVersion = os.Getenv("DIRK_GAMECI_VERSION")
 
-	if _, b := os.LookupEnv("JUNIT_TRANSFORM"); b {
-		d.JunitTransform = gameSrc.File(os.Getenv("JUNIT_TRANSFORM"))
+	if _, b := os.LookupEnv("DIRK_JUNIT_TRANSFORM"); b {
+		d.JunitTransform = gameSrc.File(os.Getenv("DIRK_JUNIT_TRANSFORM"))
 	}
 
-	d.Os = os.Getenv("OS")
+	d.Os = os.Getenv("DIRK_OS")
 
-	if _, b := os.LookupEnv("PASS"); b {
-		d.Pass = dag.Secret(os.Getenv("PASS"))
+	if _, b := os.LookupEnv("DIRK_PASS"); b {
+		d.Pass = dag.Secret(os.Getenv("DIRK_PASS"))
 	}
 
-	d.Platform = os.Getenv("PLATFORM")
+	d.Platform = os.Getenv("DIRK_PLATFORM")
 
-	if _, b := os.LookupEnv("SERIAL"); b {
-		d.Serial = dag.Secret(os.Getenv("SERIAL"))
+	if _, b := os.LookupEnv("DIRK_SERIAL"); b {
+		d.Serial = dag.Secret(os.Getenv("DIRK_SERIAL"))
 	}
 
-	if _, b := os.LookupEnv("SERVICE_CONFIG"); b {
-		d.ServiceConfig = gameSrc.File(os.Getenv("SERVICE_CONFIG"))
+	if _, b := os.LookupEnv("DIRK_SERVICE_CONFIG"); b {
+		d.ServiceConfig = gameSrc.File(os.Getenv("DIRK_SERVICE_CONFIG"))
 	}
 
-	d.TestingingPlatform = os.Getenv("TESTING_PLATFORM")
+	d.TestingingPlatform = os.Getenv("DIRK_TESTING_PLATFORM")
 
-	if _, b := os.LookupEnv("ULF"); b {
-		d.Ulf = gameSrc.File(os.Getenv("ULF"))
+	if _, b := os.LookupEnv("DIRK_ULF"); b {
+		d.Ulf = gameSrc.File(os.Getenv("DIRK_ULF"))
 	}
 
 	if _, b := os.LookupEnv("DIRK_UNITY_VERSION"); b {
 		d.UnityVersion = os.Getenv("DIRK_UNITY_VERSION")
 	}
 
-	d.User = os.Getenv("USER")
+	d.User = os.Getenv("DIRK_USER")
 
 	if gameciVersion != "" {
 		d.GameciVersion = gameciVersion
@@ -311,10 +311,18 @@ func (d *Dirk) Test(
 
 	c := d.createBaseImage()
 
-	if _, err := os.Stat("./unity_test_secrets.env"); err == nil {
-		s = gameSrc.File("./unity_test_secrets.env")
+	s = gameSrc.File("./unity_test_secrets.env")
+
+	if s != nil {
 		c, _ = NewEnv().Container(ctx, s, c, true)
 	}
+
+	libCache := dag.CacheVolume("lib")
+
+	c = d.register(c)
+
+	c = c.WithDirectory("/src", d.Src).
+		WithMountedCache("/src/Library/", libCache)
 
 	c = d.test(c)
 
@@ -382,6 +390,8 @@ func (d *Dirk) build(c *dagger.Container) *dagger.Container {
 func (d *Dirk) test(c *dagger.Container) *dagger.Container {
 	cmd := append(d.baseCommand(),
 		[]string{
+			"-projectPath",
+			"/src",
 			"-runTests",
 			"-testResults",
 			"/results/" + d.TestingingPlatform + "-results.xml",
