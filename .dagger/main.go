@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -41,6 +42,10 @@ func (d *Dirk) Build(
 	// +optional
 	gameciVersion string,
 	// +optional
+	isTest bool,
+	// +optional
+	junitTransform *dagger.File,
+	// +optional
 	pass *dagger.Secret,
 	// +optional
 	platform string,
@@ -50,6 +55,8 @@ func (d *Dirk) Build(
 	serviceConfig *dagger.File,
 	// +optional
 	targetOs string,
+	// +optional
+	testingingPlatform string,
 	// +optional
 	ulf *dagger.File,
 	// +optional
@@ -73,17 +80,28 @@ func (d *Dirk) Build(
 
 	var f, s *dagger.File
 
-	f = gameSrc.File("./unity.env")
+	if isTest {
+		f = gameSrc.File("./unity_test.env")
+	} else {
+		f = gameSrc.File("./unity.env")
+	}
 
 	if f != nil {
-		NewEnv().Host(context.Background(), f)
+		NewHostEnv(context.Background(), f)
+	} else {
+		return nil, errors.New("unity.env file is required")
 	}
 
 	d.BuildName = os.Getenv("DIRK_BUILD_NAME")
 	d.BuildTarget = os.Getenv("DIRK_BUILD_TARGET")
 	d.GameciVersion = os.Getenv("DIRK_GAMECI_VERSION")
+	d.TestingingPlatform = os.Getenv("DIRK_TESTING_PLATFORM")
 
 	d.Os = os.Getenv("DIRK_OS")
+
+	if _, b := os.LookupEnv("DIRK_JUNIT_TRANSFORM"); b {
+		d.JunitTransform = gameSrc.File(os.Getenv("DIRK_JUNIT_TRANSFORM"))
+	}
 
 	if _, b := os.LookupEnv("DIRK_PASS"); b {
 		d.Pass = dag.Secret(os.Getenv("DIRK_PASS"))
@@ -152,197 +170,58 @@ func (d *Dirk) Build(
 		d.User = user
 	}
 
-	c := d.createBaseImage()
+	err = d.validateConfig(isTest)
 
-	s = gameSrc.File("./unity_secrets.env")
-	if s != nil {
-		c, _ = NewEnv().Container(ctx, s, c, true)
+	if err != nil {
+		return nil, err
 	}
 
-	libCache := dag.CacheVolume("lib")
+	c := d.createBaseImage()
+
+	if isTest {
+		s = gameSrc.File("./unity_test_secrets.env")
+	} else {
+		s = gameSrc.File("./unity_secrets.env")
+	}
+
+	if s != nil {
+		c, _ = NewContainerEnv(ctx, s, c, true)
+	}
 
 	c = d.register(c)
 
-	c = c.WithDirectory("/src", d.Src).
-		WithMountedCache("/src/Library/", libCache)
+	c = c.
+		WithMountedCache("/src/Library/", dag.CacheVolume("lib")).
+		WithDirectory("/src", d.Src)
 
-	c = d.build(c)
+	if isTest {
+		c = d.test(c)
+
+		if junitTransform != nil {
+			f := c.File("/results/" + d.TestingingPlatform + "-results.xml")
+			jf := d.convertTestsToJUNIT(f, junitTransform)
+
+			c.WithFile("/nunit-transforms/nunit3-junit.xslt", junitTransform)
+			c = c.WithFile("/results/"+d.TestingingPlatform+"-junit-results.xml", jf)
+		}
+	} else {
+
+		c = d.build(c)
+	}
+
 	c = d.returnLicense(c)
 
 	err = d.checkForError()
 
 	if err != nil {
 		return nil, err
+	}
+
+	if isTest {
+		return d.getTestResults(c), nil
 	}
 
 	return d.getBuildArtifact(c), nil
-}
-
-// Test the things
-func (d *Dirk) Test(
-	ctx context.Context,
-	gameSrc *dagger.Directory,
-	// +optional
-	gameciVersion string,
-	// +optional
-	junitTransform *dagger.File,
-	// +optional
-	targetOs string,
-	// +optional
-	pass *dagger.Secret,
-	// +optional
-	platform string,
-	// +optional
-	serial *dagger.Secret,
-	// +optional
-	serviceConfig *dagger.File,
-	// +optional
-	testingingPlatform string,
-	// +optional
-	ulf *dagger.File,
-	// +optional
-	unityVersion string,
-	// +optional
-	user string,
-) (*dagger.Directory, error) {
-	gameSrc = gameSrc.WithoutDirectory(".git")
-	gameSrc = gameSrc.WithoutDirectory(".dagger")
-	gameSrc = gameSrc.WithoutDirectory(".vscode")
-	gameSrc = gameSrc.WithoutFiles([]string{".gitignore", ".gitmodules", ".DS_Store", "dagger.json", "go.work", "LICENSE", "README.md"})
-
-	d.Src = gameSrc
-
-	var err error
-	d.UnityVersion, err = d.determineUnityProjectVersion()
-
-	if err != nil {
-		return nil, err
-	}
-	var f, s *dagger.File
-
-	f = gameSrc.File("./unity_test.env")
-
-	if f != nil {
-		fmt.Println("Setting env vars")
-		NewEnv().Host(context.Background(), f)
-	}
-
-	d.GameciVersion = os.Getenv("DIRK_GAMECI_VERSION")
-
-	if _, b := os.LookupEnv("DIRK_JUNIT_TRANSFORM"); b {
-		d.JunitTransform = gameSrc.File(os.Getenv("DIRK_JUNIT_TRANSFORM"))
-	}
-
-	d.Os = os.Getenv("DIRK_OS")
-
-	if _, b := os.LookupEnv("DIRK_PASS"); b {
-		d.Pass = dag.Secret(os.Getenv("DIRK_PASS"))
-	}
-
-	d.Platform = os.Getenv("DIRK_PLATFORM")
-
-	if _, b := os.LookupEnv("DIRK_SERIAL"); b {
-		d.Serial = dag.Secret(os.Getenv("DIRK_SERIAL"))
-	}
-
-	if _, b := os.LookupEnv("DIRK_SERVICE_CONFIG"); b {
-		d.ServiceConfig = gameSrc.File(os.Getenv("DIRK_SERVICE_CONFIG"))
-	}
-
-	d.TestingingPlatform = os.Getenv("DIRK_TESTING_PLATFORM")
-
-	if _, b := os.LookupEnv("DIRK_ULF"); b {
-		d.Ulf = gameSrc.File(os.Getenv("DIRK_ULF"))
-	}
-
-	if _, b := os.LookupEnv("DIRK_UNITY_VERSION"); b {
-		d.UnityVersion = os.Getenv("DIRK_UNITY_VERSION")
-	}
-
-	d.User = os.Getenv("DIRK_USER")
-
-	if gameciVersion != "" {
-		d.GameciVersion = gameciVersion
-	}
-
-	if junitTransform != nil {
-		d.JunitTransform = junitTransform
-	}
-
-	if targetOs != "" {
-		d.Os = targetOs
-	}
-
-	if pass != nil {
-		d.Pass = pass
-	}
-
-	if platform != "" {
-		d.Platform = platform
-	}
-
-	if serial != nil {
-		d.Serial = serial
-	}
-
-	if serviceConfig != nil {
-		d.ServiceConfig = serviceConfig
-	}
-
-	if gameSrc != nil {
-		d.Src = gameSrc
-	}
-
-	if testingingPlatform != "" {
-		d.TestingingPlatform = testingingPlatform
-	}
-
-	if ulf != nil {
-		d.Ulf = ulf
-	}
-
-	if unityVersion != "" {
-		d.UnityVersion = unityVersion
-	}
-
-	if user != "" {
-		d.User = user
-	}
-
-	c := d.createBaseImage()
-
-	s = gameSrc.File("./unity_test_secrets.env")
-
-	if s != nil {
-		c, _ = NewEnv().Container(ctx, s, c, true)
-	}
-
-	libCache := dag.CacheVolume("lib")
-
-	c = d.register(c)
-
-	c = c.WithDirectory("/src", d.Src).
-		WithMountedCache("/src/Library/", libCache)
-
-	c = d.test(c)
-
-	if junitTransform != nil {
-		f := c.File("/results/" + d.TestingingPlatform + "-results.xml")
-		jf := d.convertTestsToJUNIT(f, junitTransform)
-
-		c.WithFile("/nunit-transforms/nunit3-junit.xslt", junitTransform)
-		c = c.WithFile("/results/"+d.TestingingPlatform+"-junit-results.xml", jf)
-	}
-
-	c = d.returnLicense(c)
-
-	err = d.checkForError()
-
-	if err != nil {
-		return nil, err
-	}
-
-	return d.getTestResults(c), nil
 }
 
 func (d *Dirk) determineUnityProjectVersion() (string, error) {
@@ -549,4 +428,43 @@ func (d *Dirk) convertTestsToJUNIT(f, transform *dagger.File) *dagger.File {
 
 func (d *Dirk) createBaseImage() *dagger.Container {
 	return dag.Container().From("unityci/editor:" + d.Os + "-" + d.UnityVersion + "-" + d.Platform + "-" + d.GameciVersion)
+}
+
+func (d *Dirk) validateConfig(isTest bool) error {
+
+	if d.User == "" {
+		return errors.New("unity username is required")
+	}
+
+	if (d.Serial == nil && d.Pass == nil) && d.Ulf == nil {
+		return errors.New("unity serial, user and pass or ulf required")
+	}
+
+	if d.Os == "" {
+		return errors.New("target os is required")
+	}
+
+	if d.Platform == "" {
+		return errors.New("platform is required")
+	}
+
+	if d.UnityVersion == "" {
+		return errors.New("unity version is required")
+	}
+
+	if isTest {
+		if d.TestingingPlatform == "" {
+			return errors.New("testing platform is required")
+		}
+	} else {
+		if d.BuildTarget == "" {
+			return errors.New("build target is required")
+		}
+
+		if d.BuildName == "" {
+			return errors.New("build name is required")
+		}
+	}
+
+	return nil
 }

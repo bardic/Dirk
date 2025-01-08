@@ -61,8 +61,16 @@ DIRK_USER=me@there.com
 `--gameSrc` is the only "required" param. If no params are set, Dirk will assume that these values have been set via the dotenv or as an environment variable.
 
 ### dotenv usage
+
+*Build*
+
 ```
 dagger call build --game-src=./example/game export --path=./builds
+```
+
+*Test*
+```
+dagger call build --game-src=./example/game --is-test export --path=./tests
 ```
 
 ### cli arg usage
@@ -72,29 +80,7 @@ dagger call build \
     --build-name="demo" \
     --build-target="StandaloneOSX|StandaloneWindows|iOS|Android|StandaloneWindows64|WebGL|StandaloneLinux64|tvOS" \
     --gameci-version="3.1.0" \
-    --pass="DONT-PASS-IT-PLAIN-TEXT-BUT-YOU-CAN" \
-    --platform="android|webgl|windows-mono|ios|mac-mono|linux-il2cpp|base" \
-    --serial="DONT-PASS-IT-PLAIN-TEXT-BUT-YOU-CAN" \
-    --service-config="./services-config.json" \
-    --target-os="ubuntu|windows" \
-    --ulf="./Unity_v6000.x.ulf" \
-    --unity-version="6000.0.29f1" \
-    --user="email@address.com" \
-    export --path=./builds
-```
-
-## Test
-
-### dotenv usage
-```
-dagger call test --game-src=./example/game export --path=./tests 
-```
-
-### cli arg usage
-```
-dagger call test
-    --game-src="./example/game" \
-    --gameci-version="3.1.0" \
+    --is-test \
     --junit-transform="./nunit-transforms/nunit3-junit.xslt" \
     --pass="DONT-PASS-IT-PLAIN-TEXT-BUT-YOU-CAN" \
     --platform="android|webgl|windows-mono|ios|mac-mono|linux-il2cpp|base" \
@@ -105,10 +91,21 @@ dagger call test
     --ulf="./Unity_v6000.x.ulf" \
     --unity-version="6000.0.29f1" \
     --user="email@address.com" \
-    export --path=./tests
+    export --path=./builds
 ```
 
 ## Setup
 
-**ULF**
+**Personal License / ULF**
 Refer to GameCI [documentation](https://game.ci/docs/gitlab/activation#b-locally) on how to activate a personal licence. This is how you will retrieve your ULF.
+
+## Known Issues
+
+*no space left on device*
+
+This is usually caused by your docker lvm being too small. This can be fixed with 
+
+```
+echo 'disk: "200GiB"' > ~/Library/Application\ Support/rancher-desktop/lima/_config/override.yaml
+rm -rf ~/Library/Application\ Support/rancher-desktop/lima/0
+```

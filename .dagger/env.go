@@ -12,12 +12,18 @@ import (
 // End struct
 type Env struct{}
 
-func NewEnv() *Env {
-	return &Env{}
+func NewHostEnv(ctx context.Context, f *dagger.File) error {
+	Env := &Env{}
+	return Env.host(ctx, f)
 }
 
-// Host
-func (e *Env) Host(ctx context.Context, f *dagger.File) error {
+func NewContainerEnv(ctx context.Context, f *dagger.File, c *dagger.Container, isSecrets bool) (*dagger.Container, error) {
+	Env := &Env{}
+	return Env.container(ctx, f, c, isSecrets)
+}
+
+// host
+func (e *Env) host(ctx context.Context, f *dagger.File) error {
 
 	envs, err := f.Contents(ctx)
 
@@ -40,8 +46,8 @@ func (e *Env) Host(ctx context.Context, f *dagger.File) error {
 	return nil
 }
 
-// Container
-func (e *Env) Container(ctx context.Context, f *dagger.File, c *dagger.Container,
+// container
+func (e *Env) container(ctx context.Context, f *dagger.File, c *dagger.Container,
 	// +optional
 	isSecrets bool,
 ) (*dagger.Container, error) {
