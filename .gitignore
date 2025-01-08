@@ -4,24 +4,23 @@
 # But not these files...
 !/.gitignore
 !/.gitattributes
-!/**/.gitignore
-!/**/.gitattributes
+!/.gitignore
+!/.gitattributes
 
 !*.go
 !go.sum
 !go.mod
 !/example/game/Assets/**/*
-!/example/game/Logs/**/*
 !/example/game/Packages/**/*
 !/example/game/ProjectSettings/**/*
 !/example/game/UserSettings/*•/*
 !/example/game/Assembly-CSharp.csproj
 !/example/game/Assembly-CSharp-Editor.csproj
-!README.md
-!LICENSE
+!/README.md
+!/LICENSE
 !dagger.json
 !/nunit-transforms/**/* 
-!VERSION
+!/VERSION
 
 # !Makefile
 
