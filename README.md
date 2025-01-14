@@ -14,12 +14,10 @@ It does this parsing variables in this order:
 
 ## [Local dotenv files]
 
-Dirk will check in the root of your project for 4 files:
+Dirk will check in the root of your project for 2 files:
 
 - `unity.env`
-- `unity_secrets.env`
-- `unity_test.env`
-- `unity_test_secrets.env`
+- `unity.secret.env`
 
 It is recommended that you store what variables you can as code to be committed, excluding the secret dotenvs.
 
@@ -58,19 +56,25 @@ DIRK_USER=me@there.com
 
 ## Build
 
-`--gameSrc` is the only "required" param. If no params are set, Dirk will assume that these values have been set via the dotenv or as an environment variable.
+*Required Params*
+
+`--gameSrc=./path-to-project`
+`--gameci-version=3.1.0`
+`--target-os=ubuntu` 
+`--platform=windows-mono`
+
 
 ### dotenv usage
 
 *Build*
 
 ```
-dagger call build --game-src=./example/game export --path=./builds
+dagger call build --game-src=./example/game --gameci-version=3.1.0 --target-os=ubuntu --platform=windows-mono export --path=./builds
 ```
 
 *Test*
 ```
-dagger call build --game-src=./example/game --is-test export --path=./tests
+dagger call build --game-src=./example/game --gameci-version=3.1.0 --target-os=ubuntu --platform=windows-mono --is-test export --path=./tests
 ```
 
 ### cli arg usage
