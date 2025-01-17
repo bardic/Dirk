@@ -4,10 +4,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bardic/Dirk/internal/dagger"
 )
@@ -76,20 +76,6 @@ func (d *Dirk) Build(
 
 	if err != nil {
 		return nil, err
-	}
-
-	var f, s *dagger.File
-
-	if isTest {
-		f = gameSrc.File("./unity_test.env")
-	} else {
-		f = gameSrc.File("./unity.env")
-	}
-
-	if f != nil {
-		NewHostEnv(context.Background(), f)
-	} else {
-		return nil, errors.New("unity.env file is required")
 	}
 
 	d.BuildName = os.Getenv("DIRK_BUILD_NAME")
@@ -170,25 +156,12 @@ func (d *Dirk) Build(
 		d.User = user
 	}
 
-	err = d.validateConfig(isTest)
-
-	if err != nil {
-		return nil, err
-	}
-
 	c := d.createBaseImage()
 
-	if isTest {
-		s = gameSrc.File("./unity_test_secrets.env")
-	} else {
-		s = gameSrc.File("./unity_secrets.env")
-	}
-
-	if s != nil {
-		c, _ = NewContainerEnv(ctx, s, c, true)
-	}
-
-	c = d.register(c)
+	c = dag.DaggerEnv().Load(c, gameSrc)
+	c = c.WithEnvVariable("CACHEBUSTER", time.Now().String())
+	//c = d.register(c)
+	c = d.registerSerialLicense(c)
 
 	c = c.
 		WithMountedCache("/src/Library/", dag.CacheVolume("lib")).
@@ -238,25 +211,11 @@ func (d *Dirk) determineUnityProjectVersion() (string, error) {
 }
 
 func (d *Dirk) build(c *dagger.Container) *dagger.Container {
-	cmd := append(d.baseCommand(),
-		[]string{
-			"-projectPath",
-			"/src",
-			"-buildTarget",
-			d.BuildTarget,
-			"-customBuildPath",
-			"/builds/",
-			"-customBuildName",
-			d.BuildName,
-			"-customBuildTarget",
-			d.BuildTarget,
-			"-quit",
-			"-executeMethod",
-			"BuildCommand.PerformBuild",
-			"-logFile",
-			"/builds/unity.log",
-		}...,
-	)
+	cmd := []string{
+		"/bin/sh",
+		"-c",
+		`xvfb-run --auto-servernum --server-args='-screen 0 640x480x24' unity-editor -nographics -projectPath /src -buildTarget $DIRK_BUILD_TARGET -customBuildPath /builds/ -customBuildName $DIRK_BUILD_NAME -customBuildTarget $DIRK_BUILD_TARGET -quit -executeMethod BuildCommand.PerformBuild`,
+	}
 
 	return c.
 		WithExec(cmd,
@@ -346,23 +305,11 @@ func (d *Dirk) registerPersonalLicense(c *dagger.Container) *dagger.Container {
 }
 
 func (d *Dirk) registerSerialLicense(c *dagger.Container) *dagger.Container {
-	ctx := context.Background()
-	s, err := d.Serial.Plaintext(ctx)
-
-	if err != nil {
-		return nil
+	cmd := []string{
+		"/bin/sh",
+		"-c",
+		`xvfb-run --auto-servernum --server-args='-screen 0 640x480x24' unity-editor -nographics -username $DIRK_USER -password $DIRK_PASS -serial $DIRK_SERIAL`,
 	}
-
-	cmd := append(d.baseCommand(),
-		[]string{
-			"-username",
-			"echo ${USER}",
-			"-password",
-			"echo ${PASS}",
-			"-serial",
-			s,
-		}...,
-	)
 
 	return c.
 		WithExec(cmd,
@@ -373,11 +320,15 @@ func (d *Dirk) registerSerialLicense(c *dagger.Container) *dagger.Container {
 }
 
 func (d *Dirk) registerLicenseServer(c *dagger.Container) *dagger.Container {
-	return c.WithFile("/usr/share/unity3d/config/services-config.json", d.ServiceConfig).
-		WithExec([]string{
-			"sh",
-			"-c",
-			"/opt/unity/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client --acquire-floating",
+	cmd := []string{
+		"/bin/sh",
+		"-c",
+		`xvfb-run --auto-servernum --server-args='-screen 0 640x480x24' unity-editor -nographics -username $DIRK_USER -password $DIRK_PASS -returnlicense`,
+	}
+
+	return c.
+		WithExec(cmd, dagger.ContainerWithExecOpts{
+			Expect: dagger.ReturnTypeAny,
 		})
 }
 
@@ -428,43 +379,4 @@ func (d *Dirk) convertTestsToJUNIT(f, transform *dagger.File) *dagger.File {
 
 func (d *Dirk) createBaseImage() *dagger.Container {
 	return dag.Container().From("unityci/editor:" + d.Os + "-" + d.UnityVersion + "-" + d.Platform + "-" + d.GameciVersion)
-}
-
-func (d *Dirk) validateConfig(isTest bool) error {
-
-	if d.User == "" {
-		return errors.New("unity username is required")
-	}
-
-	if (d.Serial == nil && d.Pass == nil) && d.Ulf == nil {
-		return errors.New("unity serial, user and pass or ulf required")
-	}
-
-	if d.Os == "" {
-		return errors.New("target os is required")
-	}
-
-	if d.Platform == "" {
-		return errors.New("platform is required")
-	}
-
-	if d.UnityVersion == "" {
-		return errors.New("unity version is required")
-	}
-
-	if isTest {
-		if d.TestingingPlatform == "" {
-			return errors.New("testing platform is required")
-		}
-	} else {
-		if d.BuildTarget == "" {
-			return errors.New("build target is required")
-		}
-
-		if d.BuildName == "" {
-			return errors.New("build name is required")
-		}
-	}
-
-	return nil
 }

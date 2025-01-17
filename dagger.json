@@ -2,5 +2,12 @@
   "name": "Dirk",
   "engineVersion": "v0.15.1",
   "sdk": "go",
+  "dependencies": [
+    {
+      "name": "dagger_env",
+      "source": "github.com/bardic/daggerenv",
+      "pin": "115ec5fb597c4ba7e6385f344d4051596e76a480"
+    }
+  ],
   "source": ".dagger"
 }
